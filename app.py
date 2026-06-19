@@ -3,391 +3,80 @@ import pandas as pd
 import sqlite3
 from datetime import datetime, date
 import hashlib
-import os
 import altair as alt
 
-# 1. Configuração de Página
+# --- CONFIGURAÇÃO ---
 st.set_page_config(
-    page_title="FleetX - Gestão de Frotas", 
+    page_title="FleetX", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-DICIONARIO_MULTAS = {
-    "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Até 20%"},
-    "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "20% a 50%"},
-    "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Sem CNH"}
+DB_MULTAS = {
+    "7455-0": {"grav": "Média", "pts": 4, "val": 130.16, "desc": "Até 20% acima"},
+    "7463-0": {"grav": "Grave", "pts": 5, "val": 195.23, "desc": "20% a 50% acima"},
+    "5010-0": {"grav": "Gravíssima", "pts": 7, "val": 880.41, "desc": "Sem CNH/Vencida"}
 }
 
-def gerar_hash(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
+def ger_hash(s):
+    return hashlib.sha256(s.encode()).hexdigest()
 
-def criar_tabelas(cursor):
-    cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
-        placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
-        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
-        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
-        combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
-        custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT, 
-        aprovado_por TEXT, data_aprovacao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS multas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
-        codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
-        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT,
-        arquivo_cnh BLOB, arquivo_termo BLOB)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-        usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
-
-def conectar_db():
+def init_db():
     conn = sqlite3.connect('frotas_v7.db', check_same_thread=False)
-    cursor = conn.cursor()
-    criar_tabelas(cursor)
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    if cursor.fetchone()[0] == 0:
-        admin_senha_hash = gerar_hash("admin123")
-        cursor.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", (admin_senha_hash,))
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS veiculos (
+        placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
+        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base', tipo_frota TEXT, 
+        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS checklists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
+        combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS ordens_servico (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
+        custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT, aprovado_por TEXT, data_aprovacao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS financeiro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS multas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
+        codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS motoristas (
+        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT, arquivo_cnh BLOB, arquivo_termo BLOB)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)""")
+    c.execute("SELECT COUNT(*) FROM usuarios")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", (ger_hash("admin123"),))
     conn.commit()
     return conn
 
-try:
-    conn = conectar_db()
-except Exception as e:
-    st.error(f"Erro DB: {e}")
-    st.stop()
+conn = init_db()
 
-# 1. COLE ESTA FUNÇÃO EM QUALQUER LUGAR DO SEU ARQUIVO (Pode ser logo antes dos ifs de navegação)
-def render_dashboard():
-    st.title("📊 Painel Executivo de Frotas")
-    
-    # KPIs Principais
-    c1, c2, c3, c4 = st.columns(4)
-    tot_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
-    tot_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
-    cst_tot = conn.cursor().execute("SELECT sum(valor) FROM financeiro").fetchone()[0] or 0.0
-    os_pnd = conn.cursor().execute("SELECT count(*) FROM ordens_servico WHERE status='Aguardando Aprovação'").fetchone()[0]
-    
-    c1.metric("Frota Cadastrada", f"{tot_v} veic.")
-    c2.metric("Motoristas Ativos", f"{tot_m} cond.")
-    c3.metric("Despesa Global", f"R$ {cst_tot:,.2f}")
-    c4.metric("O.S. Pendentes", f"{os_pnd} apr.", delta=f"{os_pnd} urgentes" if os_pnd > 0 else "Tudo em dia")
-    
-    st.markdown("---")
-    
-    # Gráficos
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("📈 Custos por Categoria")
-        df_cat = pd.read_sql_query("SELECT tipo_custo, sum(valor) as total FROM financeiro GROUP BY tipo_custo", conn)
-        if not df_cat.empty:
-            chart_cat = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta(field="total", type="quantitative"),
-                color=alt.Color(field="tipo_custo", type="nominal", title="Categoria"),
-                tooltip=["tipo_custo", "total"]
-            ).properties(height=280)
-            st.altair_chart(chart_cat, use_container_width=True)
-        else:
-            st.info("Sem dados financeiros registrados.")
-            
-    with col2:
-        st.subheader("🚗 Status e Alocação da Frota")
-        df_status = pd.read_sql_query("SELECT status, count(*) as total FROM veiculos GROUP BY status", conn)
-        if not df_status.empty:
-            chart_status = alt.Chart(df_status).mark_bar().encode(
-                x=alt.X('status:N', title="Status"),
-                y=alt.Y('total:Q', title="Quantidade"),
-                color='status:N'
-            ).properties(height=280)
-            st.altair_chart(chart_status, use_container_width=True)
-            
-    st.markdown("---")
-    
-    # Tabelas Resumo
-    col_tab1, col_tab2 = st.columns(2)
-    with col_tab1:
-        st.subheader("🚨 Últimas Multas Registradas")
-        df_ult_multas = pd.read_sql_query("SELECT placa, data, gravidade, valor FROM multas ORDER BY data DESC LIMIT 4", conn)
-        if not df_ult_multas.empty:
-            st.dataframe(df_ult_multas, use_container_width=True, hide_index=True)
-        else:
-            st.success("Nenhuma multa recente na base.")
-            
-    with col_tab2:
-        st.subheader("💡 Top 4 Veículos Mais Caros")
-        df_top_custos = pd.read_sql_query("SELECT placa, sum(valor) as total_gasto FROM financeiro GROUP BY placa ORDER BY total_gasto DESC LIMIT 4", conn)
-        if not df_top_custos.empty:
-            st.dataframe(df_top_custos, use_container_width=True, hide_index=True)
-        else:
-            st.info("Sem lançamentos de despesas para o ranking.")
+# --- SESSÃO E LOGIN ---
+if 'auth' not in st.session_state:
+    st.session_state['auth'] = False
+    st.session_state['u_log'] = ""
+    st.session_state['p_log'] = ""
 
-
-# 2. NO SEU MAPEAMENTO DE NAVEGAÇÃO (Lá no final do arquivo), DEIXE O IF ASSIM:
-if esc == "📊 Dashboard": 
-    render_dashboard()
-elif esc == "📋 Auditoria": 
-    # O resto do seu código de auditoria continua aqui...
-
-if 'autenticado' not in st.session_state:
-    st.session_state['autenticado'] = False
-    st.session_state['usuario_logado'] = ""
-    st.session_state['perfil_logado'] = ""
-
-# 2. Tela de Autenticação
-if not st.session_state['autenticado']:
+if not st.session_state['auth']:
     st.title("🔑 FleetX - Login")
-    with st.form("form_login"):
-        input_usuario = st.text_input("Usuário").strip().lower()
-        input_senha = st.text_input("Senha", type="password")
+    with st.form("f_login"):
+        u = st.text_input("ID").strip().lower()
+        s = st.text_input("Senha", type="password")
         if st.form_submit_button("Entrar", use_container_width=True):
-            cursor = conn.cursor()
-            hash_procurado = gerar_hash(input_senha)
-            cursor.execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (input_usuario, hash_procurado))
-            resultado = cursor.fetchone()
-            if resultado:
-                st.session_state['autenticado'] = True
-                st.session_state['usuario_logado'] = input_usuario
-                st.session_state['perfil_logado'] = resultado[0]
+            res = conn.cursor().execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (u, ger_hash(s))).fetchone()
+            if res:
+                st.session_state['auth'] = True
+                st.session_state['u_log'] = u
+                st.session_state['p_log'] = res[0]
                 st.rerun()
-            else:
-                st.error("Incorreto! Padrão: admin / admin123")
+            else: st.error("Incorreto! admin / admin123")
     st.stop()
 
-# 3. Menu Lateral e Navegação
+# --- SIDEBAR ---
 st.sidebar.title("FleetX Control")
-st.sidebar.write(f"👤 {st.session_state['usuario_logado']}")
-st.sidebar.write(f"🛡️ {st.session_state['perfil_logado'].upper()}")
-
-if st.session_state['perfil_logado'] == 'Gestor':
-    opcoes_menu = [
-        "📊 Dashboard", 
-        "📋 Auditoria",
-        "🚗 Cadastros", 
-        "👥 Usuários",  
-        "📍 Atualizar KM",
-        "📋 Checklist", 
-        "⛽ Abastecimento", 
-        "🛠️ OS", 
-        "⚠️ Multas", 
-        "📝 Contratos"
-    ]
-else:
-    opcoes_menu = [
-        "📍 Atualizar KM", 
-        "📋 Checklist", 
-        "⛽ Abastecimento",
-        "📋 Auditoria"
-    ]
-    
-escolha = st.sidebar.radio("Menu:", opcoes_menu)
-
-if st.sidebar.button("🚪 Sair", type="primary"):
-    st.session_state['autenticado'] = False
-    st.rerun()
+st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_state['p_log']}`")
 
 try:
-    df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-except Exception:
-    df_veiculos_global = pd.DataFrame(columns=['placa'])
-
-# 4. Blocos de Conteúdo das Páginas
-elif esc == "📊 Dashboard":
-    st.title("📊 Painel Executivo de Frotas")
-    
-    # 1. LINHA DE KPIs (Indicadores Chave)
-    c1, c2, c3, c4 = st.columns(4)
-    tot_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
-    tot_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
-    
-    # Custos e OS Separadas
-    cst_tot = conn.cursor().execute("SELECT sum(valor) FROM financeiro").fetchone()[0] or 0.0
-    os_pnd = conn.cursor().execute("SELECT count(*) FROM ordens_servico WHERE status='Aguardando Aprovação'").fetchone()[0]
-    
-    c1.metric("Frota Cadastrada", f"{tot_v} veic.")
-    c2.metric("Motoristas Ativos", f"{tot_m} cond.")
-    c3.metric("Despesa Global", f"R$ {cst_tot:,.2f}")
-    c4.metric("O.S. Pendentes", f"{os_pnd} apr.", delta=f"{os_pnd} urgentes" if os_pnd > 0 else "Tudo em dia")
-    
-    st.markdown("---")
-    
-    # 2. SEÇÃO GRÁFICA AVANÇADA
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("📈 Custos por Categoria")
-        # Gráfico que separa combustível, manutenção, multas, sinistros, etc.
-        df_cat = pd.read_sql_query("SELECT tipo_custo, sum(valor) as total FROM financeiro GROUP BY tipo_custo", conn)
-        if not df_cat.empty:
-            chart_cat = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(
-                theta=alt.Theta(field="total", type="quantitative"),
-                color=alt.Color(field="tipo_custo", type="nominal", title="Categoria"),
-                tooltip=["tipo_custo", "total"]
-            ).properties(height=280)
-            st.altair_chart(chart_cat, use_container_width=True)
-        else:
-            st.info("Sem dados financeiros registrados.")
-            
-    with col2:
-        st.subheader("🚗 Status e Alocação da Frota")
-        df_status = pd.read_sql_query("SELECT status, count(*) as total FROM veiculos GROUP BY status", conn)
-        if not df_status.empty:
-            chart_status = alt.Chart(df_status).mark_bar().encode(
-                x=alt.X('status:N', title="Status"),
-                y=alt.Y('total:Q', title="Quantidade"),
-                color='status:N'
-            ).properties(height=280)
-            st.altair_chart(chart_status, use_container_width=True)
-            
-    st.markdown("---")
-    
-    # 3. TABELAS DE ALERTA RÁPIDO (Abaixo dos gráficos)
-    col_tab1, col_tab2 = st.columns(2)
-    
-    with col_tab1:
-        st.subheader("🚨 Últimas Multas Registradas")
-        df_ult_multas = pd.read_sql_query("SELECT placa, data, gravidade, valor FROM multas ORDER BY data DESC LIMIT 4", conn)
-        if not df_ult_multas.empty:
-            st.dataframe(df_ult_multas, use_container_width=True, hide_index=True)
-        else:
-            st.success("Nenhuma multa recente na base.")
-            
-    with col_tab2:
-        st.subheader("💡 Top 4 Veículos Mais Caros")
-        df_top_custos = pd.read_sql_query("SELECT placa, sum(valor) as total_gasto FROM financeiro GROUP BY placa ORDER BY total_gasto DESC LIMIT 4", conn)
-        if not df_top_custos.empty:
-            st.dataframe(df_top_custos, use_container_width=True, hide_index=True)
-        else:
-            st.info("Sem lançamentos de despesas para o ranking.")
-
-elif escolha == "📋 Auditoria":
-    st.title("📋 Auditoria Geral")
-    t1, t2, t3, t4, t5 = st.tabs(["Checklists", "Custos", "OS", "Veículos", "Motoristas"])
-    with t1:
-        st.dataframe(pd.read_sql_query("SELECT * FROM checklists", conn), use_container_width=True)
-    with t2:
-        st.dataframe(pd.read_sql_query("SELECT * FROM financeiro", conn), use_container_width=True)
-    with t3:
-        st.dataframe(pd.read_sql_query("SELECT * FROM ordens_servico", conn), use_container_width=True)
-    with t4:
-        st.dataframe(pd.read_sql_query("SELECT * FROM veiculos", conn), use_container_width=True)
-    with t5:
-        st.dataframe(pd.read_sql_query("SELECT * FROM motoristas", conn), use_container_width=True)
-
-elif escolha == "🚗 Cadastros":
-    st.title("🚗 Cadastros")
-    v_tab, m_tab = st.tabs(["Veículo", "Motorista"])
-    with v_tab:
-        with st.form("f_v"):
-            p = st.text_input("Placa").upper()
-            m = st.text_input("Modelo")
-            k = st.number_input("KM Inicial", min_value=0)
-            if st.form_submit_button("Salvar Veículo"):
-                conn.cursor().execute("INSERT INTO veiculos (placa, modelo, km_atual) VALUES (?,?,?)", (p,m,k))
-                conn.commit()
-                st.success("Salvo!")
-                st.rerun()
-    with m_tab:
-        with st.form("f_m"):
-            nome = st.text_input("Nome")
-            cnh = st.text_input("CNH")
-            venc = st.text_input("Vencimento (AAAA-MM-DD)")
-            if st.form_submit_button("Salvar Motorista"):
-                conn.cursor().execute("INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?,?,?)", (nome, cnh, venc))
-                conn.commit()
-                st.success("Salvo!")
-                st.rerun()
-
-elif escolha == "👥 Usuários":
-    st.title("👥 Usuários")
-    with st.form("f_u"):
-        u = st.text_input("Usuário").lower()
-        s = st.text_input("Senha", type="password")
-        p = st.selectbox("Perfil", ["Operador", "Gestor"])
-        if st.form_submit_button("Criar"):
-            conn.cursor().execute("INSERT INTO usuarios VALUES (?,?,?)", (u, gerar_hash(s), p))
-            conn.commit()
-            st.success("Criado!")
-
-elif escolha == "📍 Atualizar KM":
-    st.title("📍 Atualizar KM")
-    if not df_veiculos_global.empty:
-        with st.form("f_k"):
-            pl = st.selectbox("Veículo", df_veiculos_global['placa'])
-            km = st.number_input("Novo KM", min_value=0)
-            if st.form_submit_button("Atualizar"):
-                conn.cursor().execute("UPDATE veiculos SET km_atual=? WHERE placa=?", (km, pl))
-                conn.commit()
-                st.success("Atualizado!")
-                st.rerun()
-
-elif escolha == "📋 Checklist":
-    st.title("📋 Checklist")
-    if not df_veiculos_global.empty:
-        with st.form("f_c"):
-            pl = st.selectbox("Placa", df_veiculos_global['placa'])
-            tp = st.selectbox("Tipo", ["Entrada", "Saída"])
-            km = st.number_input("KM", min_value=0)
-            tk = st.selectbox("Tanque", ["Cheio", "Meio", "Reserva"])
-            op = st.text_input("Operador", value=st.session_state['usuario_logado'])
-            if st.form_submit_button("Enviar"):
-                dt = datetime.now().strftime("%Y-%m-%d %H:%M")
-                conn.cursor().execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, operador, data) VALUES (?,?,?,?,?,?)", (pl, tp, km, tk, op, dt))
-                conn.commit()
-                st.success("Enviado!")
-
-elif escolha == "⛽ Abastecimento":
-    st.title("⛽ Abastecimento")
-    if not df_veiculos_global.empty:
-        with st.form("f_a"):
-            pl = st.selectbox("Placa", df_veiculos_global['placa'])
-            val = st.number_input("Valor", min_value=0.0)
-            if st.form_submit_button("Registrar"):
-                dt = datetime.now().strftime("%Y-%m-%d")
-                conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", (pl, val, dt))
-                conn.commit()
-                st.success("Registrado!")
-
-elif escolha == "🛠️ OS":
-    st.title("🛠️ Ordens de Serviço")
-    if not df_veiculos_global.empty:
-        with st.form("f_o"):
-            pl = st.selectbox("Placa", df_veiculos_global['placa'])
-            desc = st.text_input("Descrição")
-            custo = st.number_input("Custo", min_value=0.0)
-            if st.form_submit_button("Abrir OS"):
-                dt = datetime.now().strftime("%Y-%m-%d")
-                conn.cursor().execute("INSERT INTO ordens_servico (placa, descricao, custo, data) VALUES (?,?,?,?)", (pl, desc, custo, dt))
-                conn.commit()
-                st.success("Aberta!")
-
-elif escolha == "⚠️ Multas":
-    st.title("⚠️ Multas")
-    if not df_veiculos_global.empty:
-        with st.form("f_mult"):
-            pl = st.selectbox("Placa", df_veiculos_global['placa'])
-            cod = st.selectbox("Código", list(DICIONARIO_MULTAS.keys()))
-            loc = st.text_input("Local")
-            if st.form_submit_button("Registrar"):
-                dt = datetime.now().strftime("%Y-%m-%d")
-                inf = DICIONARIO_MULTAS[cod]
-                conn.cursor().execute("INSERT INTO multas (placa, data, endereco, codigo, gravidade, pontos, valor, descricao) VALUES (?,?,?,?,?,?,?,?)", (pl, dt, loc, cod, inf['gravidade'], inf['pontos'], inf['valor'], inf['desc']))
-                conn.commit()
-                st.success("Registrada!")
-
-elif escolha == "📝 Contratos":
-    st.title("📝 Contratos & Sinistros")
-    if not df_veiculos_global.empty:
-        with st.form("f_con"):
-            ev = st.selectbox("Tipo", ["Sinistro", "Pedágio", "Locação"])
-            pl = st.selectbox("Placa", df_veiculos_global['placa'])
-            val = st.number_input("Custo", min_value=0.0)
-            if st.form_submit_button("Salvar"):
-                dt = datetime.now().strftime("%Y-%m-%d")
-                conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?,?,?,?)", (pl, ev, val, dt))
-                conn.commit()
-                st.success("Salvo!")
+    dt_cnh = conn.cursor().execute("SELECT nome, cnh_vencimento FROM motoristas").fetchall()
+    for n, v in dt_cnh:
+        dias = (datetime.strptime(v, "%Y-%m-%d").date() - date.today()).days
+        if dias
