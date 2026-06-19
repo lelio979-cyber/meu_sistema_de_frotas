@@ -22,12 +22,12 @@ def criar_tabelas(cursor):
         km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
         documento TEXT, arquivo_crlv BLOB)''')
     
-    # Tabela de Checklists
+    # Tabela de Checklists (9 colunas originais preservadas)
     cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
         combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)''')
     
-    # Tabela de Ordens de Serviço
+    # Tabela de Ordens de Serviço (7 colunas em conformidade com o form_os)
     cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
         custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT)''')
@@ -51,10 +51,12 @@ def criar_tabelas(cursor):
         usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
 
 def conectar_db():
-    conn = sqlite3.connect('frotas_v2.db', check_same_thread=False)
+    # Mudança para v3 para forçar isolamento completo contra tabelas corrompidas na memória
+    conn = sqlite3.connect('frotas_v3.db', check_same_thread=False)
     cursor = conn.cursor()
     criar_tabelas(cursor)
     
+    # Garante usuário administrador padrão
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
         admin_senha_hash = gerar_hash("admin123")
@@ -63,10 +65,11 @@ def conectar_db():
     conn.commit()
     return conn
 
+# Inicialização à prova de falhas estruturais
 try:
     conn = conectar_db()
 except Exception as e:
-    st.error(f"Erro crítico na base de dados: {e}")
+    st.error(f"Erro ao inicializar banco de dados: {e}")
     st.stop()
 
 DICIONARIO_MULTAS = {
@@ -101,7 +104,7 @@ if not st.session_state['autenticado']:
             else:
                 st.error("Usuário ou senha incorretos. (Padrão: admin / admin123)")
 else:
-    # Menu lateral com TODAS as abas originais restabelecidas
+    # Menu lateral completo reativado
     st.sidebar.title("FleetX Control")
     st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
     st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
@@ -113,4 +116,81 @@ else:
             "👥 Controle de Usuários",  
             "📍 Atualização de KM Diária",
             "📋 Checklist de Campo", 
-            "⛽
+            "⛽ Abastecimento", 
+            "🛠️ OS & Aprovações", 
+            "⚠️ Multas Automatizadas", 
+            "📝 Gestão de Contratos & Sinistros"
+        ]
+    else:
+        opcoes_menu = ["📍 Atualização de KM Diária", "📋 Checklist de Campo", "⛽ Abastecimento"]
+        
+    escolha = st.sidebar.radio("Navegação:", opcoes_menu)
+    
+    if st.sidebar.button("🚪 Desconectar / Sair", type="primary"):
+        st.session_state['autenticado'] = False
+        st.rerun()
+
+    try:
+        df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    except Exception:
+        df_veiculos_global = pd.DataFrame(columns=['placa'])
+
+    # ==========================================
+    # MÓDULOS DO SISTEMA RESTABELECIDOS
+    # ==========================================
+    if escolha == "📊 Dashboard & KPIs":
+        st.title("📊 Painel Executivo de Tomada de Decisão")
+        try:
+            df_frotakm = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status FROM veiculos", conn)
+            st.dataframe(df_frotakm, use_container_width=True)
+        except Exception:
+            st.info("Nenhum dado operacional disponível para exibição no momento.")
+
+    elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
+        st.title("🚗 Central de Cadastros Corporativos")
+        tab_veic, tab_mot = st.tabs(["Cadastrar Veículo & Documento", "Cadastrar Motorista & CNH"])
+        
+        with tab_veic:
+            st.subheader("Inserir Novo Veículo e CRLV")
+            with st.form("form_cadastro_veiculo", clear_on_submit=True):
+                nova_placa = st.text_input("Placa do Veículo").upper()
+                novo_modelo = st.text_input("Modelo / Marca")
+                km_inicial = st.number_input("Quilometragem Inicial", min_value=0)
+                km_revisao = st.number_input("KM da Próxima Revisão", min_value=0)
+                trecho_inicial = st.text_input("Trecho Inicial")
+                tipo_f = st.selectbox("Tipo de Frota", ["Próprio", "Reserva", "Terceirizado"])
+                doc_veiculo = st.text_area("Informações Adicionais do Documento")
+                
+                # Campo de Upload de Arquivo do CRLV
+                upload_crlv = st.file_uploader("Upload do CRLV Digital (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+                
+                if st.form_submit_button("Salvar Veículo na Base"):
+                    if nova_placa and novo_modelo:
+                        conteudo_crlv = upload_crlv.read() if upload_crlv is not None else None
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute("INSERT INTO veiculos VALUES (?, ?, ?, 'Disponível', ?, ?, ?, ?, ?)",
+                                           (nova_placa, novo_modelo, km_inicial, km_revisao, trecho_inicial, tipo_f, doc_veiculo, conteudo_crlv))
+                            conn.commit()
+                            st.success(f"✅ Veículo {nova_placa} cadastrado com o CRLV anexado!")
+                        except sqlite3.IntegrityError:
+                            st.error("❌ Essa placa já existe no sistema.")
+                        st.rerun()
+
+        with tab_mot:
+            st.subheader("Inserir Novo Motorista com Anexos")
+            with st.form("form_cadastro_motorista", clear_on_submit=True):
+                nome_m = st.text_input("Nome Completo")
+                cnh_m = st.text_input("Número da CNH")
+                venc_cnh = st.date_input("Vencimento da CNH")
+                
+                # Campos de Upload de Arquivos da CNH e do Termo
+                upload_cnh = st.file_uploader("Upload da CNH Digital (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+                upload_termo = st.file_uploader("Upload do Termo de Utilização Assinado (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+                
+                aceitou_termo = st.checkbox("Confirmo que o condutor aceitou as políticas de conformidade da frota")
+                
+                if st.form_submit_button("Salvar Motorista"):
+                    if nome_m and cnh_m and aceitou_termo:
+                        conteudo_cnh = upload_cnh.read() if upload_cnh is not None else None
+                        conteudo_termo = upload_termo.read() if upload_termo is not None else None
