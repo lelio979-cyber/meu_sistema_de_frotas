@@ -368,21 +368,94 @@ elif menu == "📋 Visualizar & Editar":
             st.info("Nenhum motorista cadastrado na base de dados.")
 # --- MÓDULO: ATUALIZAR KM ---
 elif menu == "📍 Atualizar KM":
-    st.title("📍 Atualizar Hodômetro")
+    st.title("📍 Atualizar Hodômetro da Frota")
+    st.markdown("Atualize a quilometragem atual dos veículos para monitoramento de rotas e alertas de manutenção.")
+    
     df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    
     if not df_l.empty:
-        with st.form("f_km"):
-            pl = st.selectbox("Selecione o Veículo", df_l['placa'])
-            old = int(pd.read_sql_query(f"SELECT km_atual FROM veiculos WHERE placa='{pl}'", conn)['km_atual'].values[0])
-            st.metric("Hodômetro Atual", f"{old} KM")
-            nv = st.number_input("Novo KM Rodado", min_value=0, step=1)
-            if st.form_submit_button("Gravar Novo KM"):
-                if nv <= old: st.error("Deve ser maior.")
+        # Caixa de seleção do veículo isolada (fora do form) para atualizar os dados dinamicamente na tela
+        pl = st.selectbox("Selecione o Veículo para Atualização", df_l['placa'])
+        
+        # Busca informações críticas do veículo selecionado
+        dados_v = conn.cursor().execute(
+            "SELECT km_atual, km_proxima_revisao, modelo FROM veiculos WHERE placa=?", (pl,)
+        ).fetchone()
+        
+        old = int(dados_v[0])
+        km_revisao = int(dados_v[1]) if dados_v[1] else 0
+        modelo_v = dados_v[2]
+        
+        # 1. ÁREA DE MÉTRICAS E CÁLCULOS AUTOMÁTICOS
+        c_m1, c_m2, c_m3 = st.columns(3)
+        with c_m1:
+            st.metric("Hodômetro Atual", f"{old:,} KM".replace(",", "."))
+        with c_m2:
+            if km_revisao > 0:
+                restante = km_revisao - old
+                if restante <= 0:
+                    st.metric("Status da Revisão", "🔴 VENCIDA", delta=f"{abs(restante):,} KM atrasado".replace(",", "."), delta_color="inverse")
+                elif restante <= 500:
+                    st.metric("Status da Revisão", "🟡 ATENÇÃO", delta=f"Faltam {restante:,} KM".replace(",", "."), delta_color="inverse")
                 else:
-                    conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (nv, pl))
-                    conn.commit(); st.success("KM atualizado!"); st.rerun()
-    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+                    st.metric("Status da Revisão", "🟢 Em Dia", delta=f"Faltam {restante:,} KM".replace(",", "."))
+            else:
+                st.metric("Status da Revisão", "Não Definida")
+        with c_m3:
+            # Busca o último KM registrado no histórico de checklists para calcular a última rodagem
+            ultimo_chk = conn.cursor().execute(
+                "SELECT km FROM checklists WHERE placa=? ORDER BY id DESC LIMIT 1 OFFSET 1", (pl,)
+            ).fetchone()
+            if ultimo_chk:
+                diff_rodagem = old - int(ultimo_chk[0])
+                st.metric("Última Rodagem Calculada", f"+ {diff_rodagem:,} KM".replace(",", "."))
+            else:
+                st.metric("Última Rodagem Calculada", "1ª Atualização")
 
+        # 2. FORMULÁRIO DE ATUALIZAÇÃO
+        with st.form("f_km"):
+            st.markdown(f"**Lançamento de Nova Quilometragem para o veículo: `{pl}` ({modelo_v})**")
+            nv = st.number_input("Digite a Nova Leitura do Hodômetro (KM)", min_value=old, value=old, step=1)
+            
+            # Alerta Preventivo de Revisão Dinâmico (atualiza em tempo real enquanto digita)
+            if km_revisao > 0 and nv >= km_revisao:
+                st.warning(f"⚠️ Atenção: Ao salvar esse valor ({nv} KM), o veículo ultrapassará o limite estipulado para a revisão técnica ({km_revisao} KM)!")
+            elif km_revisao > 0 and (km_revisao - nv) <= 300:
+                st.info(f"⚡ Alerta Preventivo: O veículo está a menos de 300 KM de atingir a próxima revisão programada ({km_revisao} KM).")
+                
+            if st.form_submit_button("💾 Gravar Novo KM no Sistema"):
+                if nv <= old:
+                    st.error(f"❌ Erro: O novo KM digitado deve ser obrigatoriamente MAIOR do que o KM atual ({old} KM).")
+                else:
+                    ag = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    # Registra uma movimentação técnica de atualização no histórico (checklists)
+                    conn.cursor().execute(
+                        "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) "
+                        "VALUES (?, 'Atualização de KM', ?, 'Não Informado', 'Atualização via painel rápido', 'Regular', ?, ?)",
+                        (pl, nv, st.session_state['u_log'], ag)
+                    )
+                    # Atualiza o hodômetro principal na tabela de veículos
+                    conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (nv, pl))
+                    conn.commit()
+                    st.success(f"✅ Quilometragem do veículo {pl} atualizada com sucesso para {nv} KM!")
+                    st.rerun()
+
+        st.markdown("---")
+        
+        # 3. HISTÓRICO DE ALTERAÇÕES
+        st.subheader(f"📋 Histórico Recente de Atualizações e Vistorias - `{pl}`")
+        df_hist = pd.read_sql_query(
+            "SELECT data as [Data/Hora], tipo_movimentacao as [Tipo/Evento], km as [KM Registrado], operador as [Responsável] "
+            f"FROM checklists WHERE placa='{pl}' ORDER BY id DESC LIMIT 5", conn
+        )
+        
+        if not df_hist.empty:
+            st.dataframe(df_hist, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum histórico de movimentação encontrado para este veículo.")
+            
+    else:
+        st.warning("⚠️ Nenhum veículo localizado na base de dados. Cadastre um veículo primeiro na aba 'Cadastros'.")
 # --- MÓDULO: CHECKLIST ---
 elif menu == "📝 Checklist de Campo":
     st.title("📝 Checklist Operacional de Campo")
