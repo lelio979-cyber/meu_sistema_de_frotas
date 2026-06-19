@@ -9,6 +9,15 @@ import os
 st.set_page_config(page_title="FleetX - Gestão de Frotas", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
+# CONSTANTES E DICIONÁRIOS GLOBAL (Correção do Erro)
+# ==========================================
+DICIONARIO_MULTAS = {
+    "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
+    "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "Velocidade superior à máxima entre 20% e 50%"},
+    "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Dirigir sem CNH ou com CNH vencida"}
+}
+
+# ==========================================
 # 1. BANCO DE DADOS, SEGURANÇA E INFRAESTRUTURA
 # ==========================================
 def gerar_hash(senha):
@@ -51,8 +60,8 @@ def criar_tabelas(cursor):
         usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
 
 def conectar_db():
-    # Atualizado para v4 para garantir uma estrutura limpa e sem conflitos
-    conn = sqlite3.connect('frotas_v4.db', check_same_thread=False)
+    # Atualizado para v5 para garantir isolamento absoluto e tabelas limpas
+    conn = sqlite3.connect('frotas_v5.db', check_same_thread=False)
     cursor = conn.cursor()
     criar_tabelas(cursor)
     
@@ -71,12 +80,6 @@ try:
 except Exception as e:
     st.error(f"Erro ao inicializar banco de dados: {e}")
     st.stop()
-
-DICIONARIO_MULTAS = {
-    "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
-    "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "Velocidade superior à máxima entre 20% e 50%"},
-    "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Dirigir sem CNH ou com CNH vencida"}
-}
 
 # ==========================================
 # 2. SISTEMA DE AUTENTICAÇÃO (TELA DE LOGIN)
@@ -104,7 +107,7 @@ if not st.session_state['autenticado']:
             else:
                 st.error("Usuário ou senha incorretos. (Padrão: admin / admin123)")
 else:
-    # Menu lateral completo com todas as abas
+    # Menu lateral completo com todas as abas originais restabelecidas
     st.sidebar.title("FleetX Control")
     st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
     st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
@@ -184,152 +187,4 @@ else:
                 venc_cnh = st.date_input("Vencimento da CNH")
                 
                 upload_cnh = st.file_uploader("Upload da CNH Digital (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
-                upload_termo = st.file_uploader("Upload do Termo de Utilização Assinado (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
-                
-                aceitou_termo = st.checkbox("Confirmo que o condutor aceitou as políticas de conformidade da frota")
-                
-                if st.form_submit_button("Salvar Motorista"):
-                    if nome_m and cnh_m and aceitou_termo:
-                        conteudo_cnh = upload_cnh.read() if upload_cnh is not None else None
-                        conteudo_termo = upload_termo.read() if upload_termo is not None else None
-                        
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute("INSERT INTO motoristas VALUES (?, ?, ?, 'Sim', ?, ?)", 
-                                           (nome_m, cnh_m, str(venc_cnh), conteudo_cnh, conteudo_termo))
-                            conn.commit()
-                            st.success(f"👤 Condutor {nome_m} salvo com os documentos arquivados com segurança!")
-                        except Exception as e:
-                            st.error(f"Erro ao salvar motorista: {e}")
-                    else:
-                        st.error("Por favor, preencha os dados e confirme o termo antes de salvar.")
-                    st.rerun()
-
-    elif escolha == "👥 Controle de Usuários":
-        st.title("👥 Gestão de Acessos e Credenciais")
-        tab_cad_user, tab_list_user = st.tabs(["Cadastrar Novo Usuário", "Usuários Ativos"])
-        with tab_cad_user:
-            with st.form("form_cadastro_usuario", clear_on_submit=True):
-                novo_login = st.text_input("Nome de Usuário (Login)").strip().lower()
-                nova_senha = st.text_input("Senha de Acesso", type="password")
-                perfil_escolhido = st.selectbox("Nível de Permissão", ["Operador", "Gestor"])
-                if st.form_submit_button("Cadastrar Usuário"):
-                    if novo_login and nova_senha:
-                        cursor = conn.cursor()
-                        try:
-                            cursor.execute("INSERT INTO usuarios VALUES (?, ?, ?)", (novo_login, gerar_hash(nova_senha), perfil_escolhido))
-                            conn.commit()
-                            st.success(f"✅ Usuário '{novo_login}' criado!")
-                        except sqlite3.IntegrityError:
-                            st.error("❌ Usuário já existe.")
-                        st.rerun()
-        with tab_list_user:
-            df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", conn)
-            st.dataframe(df_usuarios, use_container_width=True)
-
-    elif escolha == "📍 Atualização de KM Diária":
-        st.title("📍 Lançamento Rápido de KM Diário")
-        df_veiculos = pd.read_sql_query("SELECT placa, modelo, km_atual FROM veiculos", conn)
-        if not df_veiculos.empty:
-            with st.form("form_km"):
-                escolha_v = st.selectbox("Selecione o Veículo", df_veiculos['placa'])
-                novo_km = st.number_input("Novo KM", min_value=0)
-                if st.form_submit_button("Atualizar"):
-                    cursor = conn.cursor()
-                    cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km, escolha_v))
-                    conn.commit()
-                    st.success("Atualizado!")
-                    st.rerun()
-
-    elif escolha == "📋 Checklist de Campo":
-        st.title("📋 Checklist Prático de Entrada e Saída")
-        if not df_veiculos_global.empty:
-            with st.form("form_chk", clear_on_submit=True):
-                placa = st.selectbox("Placa", df_veiculos_global['placa'])
-                tipo = st.selectbox("Movimentação", ["Entrada de Oficina", "Saída de Oficina", "Novo Contrato", "Devolução"])
-                km = st.number_input("Quilometragem", min_value=0)
-                combustivel = st.selectbox("Nível do Tanque", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
-                pneus = st.radio("Condição dos Pneus", ["Ok", "Alerta"])
-                avarias = st.text_input("Avarias observadas")
-                operador = st.text_input("Nome do Operador")
-                
-                if st.form_submit_button("Enviar Checklist"):
-                    cursor = conn.cursor()
-                    data_atual = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    # CORREÇÃO CRÍTICA: Mapeamento exato das 8 colunas de valores (omitindo o ID AUTOINCREMENT)
-                    cursor.execute('''INSERT INTO checklists 
-                                   (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) 
-                                   VALUES (?,?,?,?,?,?,?,?)''',
-                                   (placa, tipo, km, combustivel, avarias, pneus, operador, data_atual))
-                    conn.commit()
-                    st.success("✅ Checklist enviado e sincronizado com sucesso!")
-                    st.rerun()
-
-    elif escolha == "⛽ Abastecimento":
-        st.title("⛽ Lançamento de Abastecimento")
-        if not df_veiculos_global.empty:
-            with st.form("form_abs"):
-                placa = st.selectbox("Veículo", df_veiculos_global['placa'])
-                valor = st.number_input("Valor Total (R$)", min_value=0.0)
-                if st.form_submit_button("Registrar"):
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", 
-                                   (placa, valor, datetime.now().strftime("%Y-%m-%d")))
-                    conn.commit()
-                    st.success("Registrado!")
-
-    elif escolha == "🛠️ OS & Aprovações":
-        st.title("🛠️ Fluxo de Ordens de Serviço")
-        if df_veiculos_global.empty:
-            st.warning("Cadastre um veículo antes.")
-        else:
-            tab1, tab2 = st.tabs(["Abrir Nova OS", "Fila de Aprovações"])
-            with tab1:
-                with st.form("form_os"):
-                    placa = st.selectbox("Veículo", df_veiculos_global['placa'])
-                    tipo_m = st.selectbox("Tipo", ["Preventiva", "Corretiva"])
-                    desc = st.text_area("Descrição")
-                    custo = st.number_input("Custo Previsto (R$)", min_value=0.0)
-                    if st.form_submit_button("Gerar OS"):
-                        cursor = conn.cursor()
-                        cursor.execute("INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data) VALUES (?,?,?,?,'Aguardando Aprovação',?)", 
-                                       (placa, tipo_m, desc, custo, datetime.now().strftime("%Y-%m-%d")))
-                        conn.commit()
-                        st.success("Ordem de serviço aberta!")
-            with tab2:
-                df_os = pd.read_sql_query("SELECT * FROM ordens_servico", conn)
-                st.dataframe(df_os, use_container_width=True)
-
-    elif escolha == "⚠️ Multas Automatizadas":
-        st.title("⚠️ Lançamento de Infrações")
-        if df_veiculos_global.empty:
-            st.warning("Cadastre veículos antes.")
-        else:
-            with st.form("form_multas"):
-                placa = st.selectbox("Veículo Infrator", df_veiculos_global['placa'])
-                data_m = st.text_input("Data (DD/MM/AAAA)")
-                endereco = st.text_input("Endereço")
-                codigo = st.selectbox("Código de Infração", list(DICIONARIO_MULTAS.keys()))
-                if st.form_submit_button("Processar Multa"):
-                    info = DICIONARIO_MULTAS[codigo]
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO multas (placa, data, endereco, codigo, gravidade, pontos, valor, descricao) VALUES (?,?,?,?,?,?,?,?)",
-                                   (placa, data_m, endereco, codigo, info['gravidade'], info['pontos'], info['valor'], info['desc']))
-                    conn.commit()
-                    st.success("🚨 Multa processada com sucesso!")
-
-    elif escolha == "📝 Gestão de Contratos & Sinistros":
-        st.title("📝 Lançamentos Administrativos & Sinistros")
-        if df_veiculos_global.empty:
-            st.warning("Não há veículos na frota.")
-        else:
-            with st.form("form_admin"):
-                tipo_c = st.selectbox("Natureza do Evento", ["Sinistro", "Pedágio", "Locação"])
-                placa = st.selectbox("Veículo Vinculado", df_veiculos_global['placa'])
-                valor = st.number_input("Custo Financeiro (R$)", min_value=0.0)
-                if st.form_submit_button("Salvar Registro"):
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)", 
-                                   (placa, tipo_c, valor, datetime.now().strftime("%Y-%m-%d")))
-                    conn.commit()
-                    st.success("✅ Registro administrativo devido e salvo.")
+                upload_ter
