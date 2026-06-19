@@ -78,34 +78,102 @@ if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
 # --- MÓDULO: DASHBOARD ---
 if menu == "📊 Dashboard":
     st.title("📊 Painel Executivo de Frotas")
+    st.markdown("Análise de desempenho, controle de custos e alertas operacionais em tempo real.")
+    
+    # 1. LINHA DE MÉTRICAS (KPIs)
     c1, c2, c3, c4 = st.columns(4)
     tot_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
     tot_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
     cst_tot = conn.cursor().execute("SELECT sum(valor) FROM financeiro").fetchone()[0] or 0.0
     os_pnd = conn.cursor().execute("SELECT count(*) FROM ordens_servico WHERE status='Pendente'").fetchone()[0]
     
-    c1.metric("Frota Cadastrada", f"{tot_v} veic.")
-    c2.metric("Motoristas Ativos", f"{tot_m} cond.")
-    c3.metric("Despesa Global", f"R$ {cst_tot:,.2f}")
-    c4.metric("O.S. Pendentes", f"{os_pnd} abrir")
+    # Busca veículos com revisão vencida (KM Atual >= KM Próxima Revisão)
+    rev_vencidas = conn.cursor().execute("SELECT count(*) FROM veiculos WHERE km_atual >= km_proxima_revisao AND km_proxima_revisao > 0").fetchone()[0]
+    
+    c1.metric("Frota Cadastrada", f"{tot_v} Veículos")
+    c2.metric("Motoristas Ativos", f"{tot_m} Condutores")
+    c3.metric("Investimento Global", f"R$ {cst_tot:,.2f}")
+    c4.metric("Avisos Críticos", f"{os_pnd + rev_vencidas} Alertas", 
+              delta=f"{rev_vencidas} revisões atrasadas" if rev_vencidas > 0 else "Manutenções em dia", delta_color="inverse")
     
     st.markdown("---")
+    
+    # 2. GRÁFICOS PRINCIPAIS (CUSTOS E STATUS)
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("📈 Despesas por Categoria")
-        df_cat = pd.read_sql_query("SELECT tipo_custo, sum(valor) as total FROM financeiro GROUP BY tipo_custo", conn)
+        st.subheader("💰 Distribuição de Custos")
+        df_cat = pd.read_sql_query("SELECT tipo_custo as Categoria, sum(valor) as Total FROM financeiro GROUP BY tipo_custo", conn)
         if not df_cat.empty:
-            chart = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(theta='total:Q', color='tipo_custo:N').properties(height=260)
+            chart = alt.Chart(df_cat).mark_arc(innerRadius=60).encode(
+                theta='Total:Q', color='Categoria:N', tooltip=['Categoria', 'Total']
+            ).properties(height=280)
             st.altair_chart(chart, use_container_width=True)
-        else: st.info("Sem lançamentos financeiros ainda.")
+        else:
+            st.info("Aguardando lançamentos financeiros para gerar o gráfico de custos.")
+            
     with col2:
-        st.subheader("🚗 Distribuição da Frota por Status")
-        df_st = pd.read_sql_query("SELECT status, count(*) as qtd FROM veiculos GROUP BY status", conn)
+        st.subheader("📋 Status Operacional da Frota")
+        df_st = pd.read_sql_query("SELECT status as Status, count(*) as Quantidade FROM veiculos GROUP BY status", conn)
         if not df_st.empty:
-            chart_bar = alt.Chart(df_st).mark_bar().encode(x='status:N', y='qtd:Q', color='status:N').properties(height=260)
+            chart_bar = alt.Chart(df_st).mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
+                x=alt.X('Status:N', axis=alt.Axis(labelAngle=0)), 
+                y='Quantidade:Q', 
+                color='Status:N',
+                tooltip=['Status', 'Quantidade']
+            ).properties(height=280)
             st.altair_chart(chart_bar, use_container_width=True)
-        else: st.info("Nenhum veículo mapeado.")
+        else:
+            st.info("Nenhum veículo mapeado para exibir a distribuição de status.")
 
+    st.markdown("---")
+    
+    # 3. NOVO INDICADOR: EVOLUÇÃO MENSAL DOS GASTOS
+    st.subheader("📈 Histórico e Tendência de Despesas Mensais")
+    # Consulta estruturada para agrupar despesas por Ano-Mês
+    df_mes = pd.read_sql_query(
+        "SELECT strftime('%Y-%m', data) as Mês, sum(valor) as Total FROM financeiro WHERE data IS NOT NULL GROUP BY Mês ORDER BY Mês ASC", conn
+    )
+    if not df_mes.empty and len(df_mes) > 0:
+        chart_line = alt.Chart(df_mes).mark_line(point=True, color="#26b47a").encode(
+            x='Mês:N',
+            y='Total:Q',
+            tooltip=['Mês', 'Total']
+        ).properties(height=220)
+        st.altair_chart(chart_line, use_container_width=True)
+    else:
+        st.info("Dados insuficientes para projetar a linha de tendência mensal. Continue alimentando o sistema.")
+
+    st.markdown("---")
+
+    # 4. NOVO INDICADOR: PAINEL DE ADVERTÊNCIAS OPERACIONAIS
+    st.subheader("⚠️ Painel de Atenção e Alertas Preventivos")
+    
+    alertas_lista = []
+    
+    # Verificação 1: Revisões de KM vencidas
+    veics_rev = conn.cursor().execute("SELECT placa, modelo, km_atual, km_proxima_revisao FROM veiculos WHERE km_atual >= km_proxima_revisao AND km_proxima_revisao > 0").fetchall()
+    for v in veics_rev:
+        alertas_lista.append({"Veículo/Origem": f"{v[0]} - {v[1]}", "Criticidade": "🔴 Alta", "Detalhe do Alerta": f"Revisão ultrapassada! KM Atual ({v[2]}) está acima do limite ({v[3]})"})
+        
+    # Verificação 2: Pneus com problemas no último checklist
+    veics_pneu = conn.cursor().execute("SELECT placa, pneus_estado, data FROM checklists WHERE pneus_estado = 'Troca Necessária' ORDER BY id DESC").fetchall()
+    # Filtra para mostrar apenas o alerta mais recente por placa
+    placas_vistas = set()
+    for p in veics_pneu:
+        if p[0] not in placas_vistas:
+            alertas_lista.append({"Veículo/Origem": p[0], "Criticidade": "🟡 Média", "Detalhe do Alerta": f"Último checklist acusou: Necessita troca de pneus ({p[2]})"})
+            placas_vistas.add(p[0])
+            
+    # Verificação 3: Ordens de Serviço paradas
+    os_abertas = conn.cursor().execute("SELECT id, placa, tipo, custo FROM ordens_servico WHERE status = 'Pendente'").fetchall()
+    for o in os_abertas:
+        alertas_lista.append({"Veículo/Origem": f"O.S. № {o[0]} ({o[1]})", "Criticidade": "🔵 Informativa", "Detalhe do Alerta": f"Manutenção {o[2]} aguardando aprovação. Orçamento: R$ {o[3]:,.2f}"})
+        
+    if alertas_lista:
+        df_alertas = pd.DataFrame(alertas_lista)
+        st.dataframe(df_alertas, use_container_width=True, hide_index=True)
+    else:
+        st.success("🎉 Excelente! Nenhum alerta operacional ativo ou pendência detectada na frota.")
 # --- MÓDULO: CADASTROS ---
 elif menu == "🚗 Cadastros":
     st.title("🚗 Central de Cadastros")
