@@ -69,7 +69,7 @@ st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_
 menu = st.sidebar.radio(
     "Navegação:", 
     ["📊 Dashboard", "🚗 Cadastros", "📋 Visualizar & Editar", 
-     "📍 Atualizar KM", "📝 Checklist de Campo", "⛽ Abastecimento", "🛠️ Ordens de Serviço"]
+     "📍 Atualizar KM", "📝 Checklist de Campo", "⛽ Abastecimento", "🛠️ Ordens de Serviço", "📋 Auditoria de Checklists"]
 )
 
 if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
