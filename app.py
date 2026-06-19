@@ -103,4 +103,51 @@ elif menu == "📋 Visualizar & Editar":
         if st.button("💾 Salvar Alterações de Motoristas"):
             conn.cursor().execute("DELETE FROM motoristas")
             for _, r in edit_m.iterrows():
-                conn.cursor().execute("INSERT OR REPLACE INTO motoristas (nome, cnh_numero
+                conn.cursor().execute("INSERT OR REPLACE INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?,?,?)", (r['nome'], r['cnh_numero'], r['cnh_vencimento']))
+            conn.commit(); st.success("Banco de dados de Motoristas Atualizado!"); st.rerun()
+
+# --- FASE 3: OPERAÇÃO E LANÇAMENTOS ---
+elif menu == "📍 Atualizar KM":
+    st.title("📍 Atualizar Hodômetro")
+    if not df_glob.empty:
+        with st.form("f_km"):
+            pl = st.selectbox("Selecione o Veículo", df_glob['placa'])
+            old = int(pd.read_sql_query(f"SELECT km_atual FROM veiculos WHERE placa='{pl}'", conn)['km_atual'].values[0])
+            st.metric("Hodômetro Atual", f"{old} KM")
+            nv = st.number_input("Novo KM Rodado", min_value=0, step=1)
+            if st.form_submit_button("Gravar Novo KM"):
+                if nv <= old: st.error(f"Erro! O novo KM deve ser maior que {old} KM.")
+                else:
+                    conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (nv, pl))
+                    conn.commit(); st.success("KM atualizado com sucesso!"); st.rerun()
+    else: st.warning("Nenhum veículo cadastrado.")
+
+elif menu == "📝 Checklist de Campo":
+    st.title("📝 Checklist Operacional de Campo")
+    if not df_glob.empty:
+        with st.form("f_chk", clear_on_submit=True):
+            pl = st.selectbox("Veículo", df_glob['placa'])
+            tp = st.selectbox("Natureza da Movimentação", ["Entrada", "Saída", "Novo Contrato", "Devolução"])
+            km = st.number_input("KM Atual no Ato", min_value=0)
+            tk = st.selectbox("Nível do Combustível (Tanque)", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
+            pn = st.radio("Estado dos Pneus", ["Regular / Perfeito", "Avaria / Troca Necessária"])
+            av = st.text_input("Avarias Visuais Encontradas (Funilaria/Vidros)")
+            if st.form_submit_button("Submeter Checklist"):
+                ag = datetime.now().strftime("%Y-%m-%d %H:%M")
+                conn.cursor().execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) VALUES (?,?,?,?,?,?,?,?)", (pl, tp, km, tk, av, pn, st.session_state['u_log'], ag))
+                conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, pl))
+                conn.commit(); st.success("Checklist computado e salvo com sucesso!"); st.rerun()
+    else: st.warning("Nenhum veículo disponível.")
+
+elif menu == "⛽ Abastecimento":
+    st.title("⛽ Lançamento de Abastecimento Financeiro")
+    if not df_glob.empty:
+        with st.form("f_abs", clear_on_submit=True):
+            pl = st.selectbox("Veículo", df_glob['placa'])
+            val = st.number_input("Valor Total Pago (R$)", min_value=0.0, step=10.0)
+            if st.form_submit_button("Lançar Nota de Abastecimento"):
+                if val > 0:
+                    conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", (pl, val, datetime.now().strftime("%Y-%m-%d")))
+                    conn.commit(); st.success(f"Lançamento de R$ {val:.2f} registrado!"); st.rerun()
+                else: st.error("O valor deve ser maior que zero.")
+    else: st.warning("Nenhum veículo cadastrado.")
