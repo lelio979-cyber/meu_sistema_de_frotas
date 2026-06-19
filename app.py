@@ -110,5 +110,30 @@ else:
     st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
     st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
     
-    # Menu dinâmico incluindo a nova aba global para ambos os perfis
+    # Menu dinâmico corrigido e perfeitamente indentado
     if st.session_state['perfil_logado'] == 'Gestor':
+        opcoes_menu = [
+            "📊 Dashboard & KPIs", 
+            "📋 Auditoria Geral de Operações",
+            "🚗 Cadastros Gerais (Frota/Motoristas)", 
+            "👥 Controle de Usuários",  
+            "📍 Atualização de KM Diária",
+            "📋 Checklist de Campo", 
+            "⛽ Abastecimento", 
+            "🛠️ OS & Aprovações", 
+            "⚠️ Multas Automatizadas", 
+            "📝 Gestão de Contratos & Sinistros"
+        ]
+    else:
+        opcoes_menu = [
+            "📍 Atualização de KM Diária", 
+            "📋 Checklist de Campo", 
+            "⛽ Abastecimento",
+            "📋 Auditoria Geral de Operações"
+        ]
+        
+    escolha = st.sidebar.radio("Navegação:", opcoes_menu)
+    
+    if st.sidebar.button("🚪 Desconectar / Sair", type="primary"):
+        st.session_state['autenticado'] = False
+        st.rerun()
