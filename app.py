@@ -221,4 +221,148 @@ else:
                     cursor = conn.cursor()
                     data_atual = datetime.now().strftime("%Y-%m-%d")
                     cursor.execute("INSERT INTO ordens_servico (placa, tipo, descricao, custo, data) VALUES (?,?,?,?,?)", (placa, tipo_m, desc, custo, data_atual))
-                    cursor.execute("UPDATE veiculos SET status = 'Em Manutenção' WHERE placa
+                    cursor.execute("UPDATE veiculos SET status = 'Em Manutenção' WHERE placa = ?", (placa,))
+                    conn.commit()
+                    st.warning(f"⚠️ Veículo {placa} alterado para 'Em Manutenção'.")
+                    st.rerun()
+                    
+        with tab2:
+            df_os = pd.read_sql_query("SELECT * FROM ordens_servico WHERE status != 'Encerrado'", conn)
+            if df_os.empty:
+                st.info("Nenhuma OS pendente.")
+            else:
+                for idx, row in df_os.iterrows():
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    col1.write(f"**OS #{row['id']}** - {row['placa']} | Custo: R$ {row['custo']} | **Status: {row['status']}**")
+                    if row['status'] == 'Aguardando Aprovação':
+                        if col2.button("✔️ Aprovar", key=f"ap_{row['id']}"):
+                            cursor = conn.cursor()
+                            cursor.execute("UPDATE ordens_servico SET status = 'Em Andamento' WHERE id = ?", (row['id'],))
+                            cursor.execute("UPDATE veiculos SET status = 'Em Andamento' WHERE placa = ?", (row['placa'],))
+                            conn.commit()
+                            st.rerun()
+                    elif row['status'] == 'Em Andamento':
+                        if col3.button("🔒 Encerrar", key=f"en_{row['id']}"):
+                            cursor = conn.cursor()
+                            # Quando encerra a revisão, define a próxima revisão para daqui a 10.000 KM automáticos
+                            cursor.execute("SELECT km_atual FROM veiculos WHERE placa = ?", (row['placa'],))
+                            km_atual_v = cursor.fetchone()[0]
+                            prox_revisao_nova = km_atual_v + 10000
+                            
+                            cursor.execute("UPDATE ordens_servico SET status = 'Encerrado' WHERE id = ?", (row['id'],))
+                            cursor.execute("UPDATE veiculos SET status = 'Disponível', km_proxima_revisao = ? WHERE placa = ?", (prox_revisao_nova, row['placa']))
+                            cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Manutenção', ?, ?)", (row['placa'], row['custo'], row['data']))
+                            conn.commit()
+                            st.success("Revisão encerrada! Próxima meta estendida em +10.000 KM.")
+                            st.rerun()
+
+    # ==========================================
+    # 7. MÓDULO: MULTAS AUTOMATIZADAS
+    # ==========================================
+    elif escolha == "⚠️ Multas Automatizadas":
+        st.title("⚠️ Lançamento de Infrações")
+        df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+        
+        placa = st.selectbox("Veículo Infrator", df_veiculos['placa'])
+        data_m = st.text_input("Data (DD/MM/AAAA)")
+        endereco = st.text_input("Endereço / Rodovia")
+        codigo = st.text_input("Código de Infração")
+        
+        if st.button("Processar Multa"):
+            if codigo in DICIONARIO_MULTAS:
+                info = DICIONARIO_MULTAS[codigo]
+                cursor = conn.cursor()
+                cursor.execute("INSERT INTO multas (placa, data, endereco, codigo, gravidade, pontos, valor, descricao) VALUES (?,?,?,?,?,?,?,?)",
+                               (placa, data_m, endereco, codigo, info['gravidade'], info['pontos'], info['valor'], info['desc']))
+                cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Multa', ?, ?)", (placa, info['valor'], data_m))
+                conn.commit()
+                st.success(f"🚨 Autopreenchido: {info['desc']} | Valor: R$ {info['valor']}")
+
+    # ==========================================
+    # 8. MÓDULO: CONTRATOS & SINISTROS
+    # ==========================================
+    elif escolha == "📝 Gestão de Contratos & Sinistros":
+        st.title("📝 Custos Administrativos")
+        df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+        tipo_c = st.selectbox("Tipo", ["Pedágio", "Sinistro", "Locação"])
+        placa = st.selectbox("Veículo", df_veiculos['placa'])
+        valor = st.number_input("Valor (R$)", min_value=0.0)
+        
+        if st.button("Salvar Registro"):
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)", (placa, tipo_c, valor, datetime.now().strftime("%Y-%m-%d")))
+            conn.commit()
+            st.success("Custo integrado.")
+
+    # ==========================================
+    # 9. MÓDULO: DASHBOARD, KPIS E CONTROLE DE KM
+    # ==========================================
+    elif escolha == "📊 Dashboard & KPIs":
+        st.title("📊 Painel Executivo de Tomada de Decisão")
+        
+        # --- TABELA DE CONTROLE DE KM SOLICITADA ---
+        st.subheader("🚗 Painel de Controle de KM & Previsão de Revisões")
+        st.caption("Acompanhamento em tempo real de quanto resta rodar antes da próxima parada preventiva (Troca de óleo de 10k em 10k KM).")
+        
+        # Busca dados das metas de KM
+        df_frotakm = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status FROM veiculos", conn)
+        
+        # Faz os cálculos matemáticos diretamente na tabela
+        df_frotakm['KM Restante para Rodar'] = df_frotakm['km_proxima_revisao'] - df_frotakm['km_atual']
+        
+        # Cria uma coluna com o status do prazo
+        def avaliar_prazo(restante):
+            if restante <= 0:
+                return "🚨 CRÍTICO - KM VENCIDO!"
+            elif restante <= 1500:
+                return "⚠️ ALERTA - Agendar Oficina"
+            else:
+                return "🟢 Seguro (Rodando)"
+                
+        df_frotakm['Status do Prazo'] = df_frotakm['KM Restante para Rodar'].apply(avaliar_prazo)
+        
+        # Organiza as colunas bonitas para exibição
+        df_exibicao = df_frotakm[['placa', 'modelo', 'km_atual', 'km_proxima_revisao', 'KM Restante para Rodar', 'Status do Prazo', 'status']]
+        df_exibicao.columns = ['Placa', 'Modelo', 'KM Atual', 'Meta da Próxima Revisão', 'KM Restante para Rodar', 'Status do Prazo', 'Status Operacional']
+        
+        st.dataframe(df_exibicao, use_container_width=True)
+        
+        st.divider()
+
+        # --- ALERTAS RÁPIDOS ---
+        col_al1, col_al2 = st.columns(2)
+        with col_al1:
+            for _, r in df_frotakm.iterrows():
+                if r['KM Restante para Rodar'] <= 1500:
+                    st.error(f"Bloqueio Preditivo: {r['placa']} restam apenas {r['KM Restante para Rodar']} KM antes da revisão!")
+        with col_al2:
+            df_mot = pd.read_sql_query("SELECT * FROM motoristas", conn)
+            for _, r in df_mot.iterrows():
+                venc = datetime.strptime(r['cnh_vencimento'], "%Y-%m-%d")
+                if venc <= datetime.now() + timedelta(days=60):
+                    st.warning(f"CNH Próxima do Vencimento: Condutor {r['nome']} vence em {venc.strftime('%d/%m/%Y')}")
+
+        st.divider()
+
+        # --- FINANCEIRO E GRÁFICOS ---
+        df_fin = pd.read_sql_query("SELECT * FROM financeiro", conn)
+        total_geral = df_fin['valor'].sum() if not df_fin.empty else 0.0
+        c_comb = df_fin[df_fin['tipo_custo'] == 'Combustível']['valor'].sum()
+        c_man = df_fin[df_fin['tipo_custo'] == 'Manutenção']['valor'].sum()
+        
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("Custo Total de Operação", f"R$ {total_geral:,.2f}")
+        kpi2.metric("Total Cartão Combustível", f"R$ {c_comb:,.2f}")
+        kpi3.metric("Investimento em Oficinas", f"R$ {c_man:,.2f}")
+        
+        if not df_fin.empty:
+            grafico_data = df_fin.groupby('tipo_custo')['valor'].sum().reset_index()
+            chart = alt.Chart(grafico_data).mark_bar(color='#1f6aa5').encode(
+                x=alt.X('tipo_custo:N', title='Natureza do Custo'),
+                y=alt.Y('valor:Q', title='Total Acumulado (R$)')
+            ).properties(height=300)
+            st.altair_chart(chart, use_container_width=True)
+            
+        st.subheader("📥 Exportação de Relatórios Gerenciais")
+        df_chk_rep = pd.read_sql_query("SELECT * FROM checklists", conn)
+        st.download_button("Exportar Planilha de Checklists (CSV)", df_chk_rep.to_csv(index=False), "relatorio_checklists.csv", "text/csv")
