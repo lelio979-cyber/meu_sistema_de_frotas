@@ -25,10 +25,11 @@ def gerar_hash(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def criar_tabelas(cursor):
+    # Tabela de Veículos Atualizada (v6 - com campos de locação)
     cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
         km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
-        documento TEXT, arquivo_crlv BLOB)''')
+        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)''')
     
     cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
@@ -53,7 +54,8 @@ def criar_tabelas(cursor):
         usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
 
 def conectar_db():
-    conn = sqlite3.connect('frotas_v5.db', check_same_thread=False)
+    # Atualizado para v6 para comportar a nova estrutura de colunas de locação
+    conn = sqlite3.connect('frotas_v6.db', check_same_thread=False)
     cursor = conn.cursor()
     criar_tabelas(cursor)
     
@@ -127,7 +129,7 @@ else:
     except Exception:
         df_veiculos_global = pd.DataFrame(columns=['placa'])
 
-    # Alerta Proativo de Validação de CNH no topo do painel
+    # Alerta Proativo de Validação de CNH
     try:
         df_cnh_check = pd.read_sql_query("SELECT nome, cnh_vencimento FROM motoristas", conn)
         if not df_cnh_check.empty:
@@ -142,14 +144,12 @@ else:
         pass
 
     # ==========================================
-    # MÓDULOS DO SISTEMA COM AS MELHORIAS
+    # MÓDULOS DO SISTEMA
     # ==========================================
     if escolha == "📊 Dashboard & KPIs":
         st.title("📊 Painel Executivo & Tomada de Decisão")
         
-        # 1. Gráficos em Linha/Coluna Reais
         col1, col2 = st.columns(2)
-        
         with col1:
             st.subheader("Distribuição do Status da Frota")
             try:
@@ -185,9 +185,8 @@ else:
         st.markdown("---")
         st.subheader("🔍 Filtros Avançados & Relatórios Exportáveis")
         
-        # 2. Filtros e Relatórios
         try:
-            df_mestre = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status, tipo_frota FROM veiculos", conn)
+            df_mestre = pd.read_sql_query("SELECT placa, modelo, km_atual, status, tipo_frota, locadora_nome, data_locacao, data_devolucao FROM veiculos", conn)
             if not df_mestre.empty:
                 filtro_placa = st.text_input("Filtrar por Placa").upper().strip()
                 filtro_status = st.multiselect("Filtrar por Status", options=df_mestre['status'].unique())
@@ -200,7 +199,6 @@ else:
                 
                 st.dataframe(df_filtrado, use_container_width=True)
                 
-                # Conversão nativa para CSV (Download de relatórios)
                 csv = df_filtrado.to_csv(index=False).encode('utf-8')
                 st.download_button(
                     label="📥 Exportar Relatório Customizado (CSV)",
@@ -219,14 +217,29 @@ else:
         tab_veic, tab_mot, tab_downloads = st.tabs(["Cadastrar Veículo & CRLV", "Cadastrar Motorista & CNH", "📥 Arquivo Digital (Downloads)"])
         
         with tab_veic:
-            st.subheader("Inserir Novo Veículo e CRLV")
+            st.subheader("Inserir Novo Veículo")
+            
+            # Form com inputs dinâmicos com base na seleção da Frota
+            tipo_f = st.selectbox("Tipo de Frota", ["Próprio", "Reserva", "Terceirizado", "Locadora"])
+            
+            locadora_nome = None
+            data_locacao_str = None
+            
+            # MELHORIA: Exibe campos extras se for Locadora
+            if tipo_f == "Locadora":
+                col_loc1, col_loc2 = st.columns(2)
+                with col_loc1:
+                    locadora_nome = st.text_input("Nome da Locadora (ex: Localiza, Movida)").strip()
+                with col_loc2:
+                    data_locacao = st.date_input("Data de Início da Locação", value=date.today())
+                    data_locacao_str = str(data_locacao)
+
             with st.form("form_cadastro_veiculo", clear_on_submit=True):
                 nova_placa = st.text_input("Placa do Veículo").upper()
                 novo_modelo = st.text_input("Modelo / Marca")
                 km_inicial = st.number_input("Quilometragem Inicial", min_value=0)
                 km_revisao = st.number_input("KM da Próxima Revisão", min_value=0)
                 trecho_inicial = st.text_input("Trecho Inicial")
-                tipo_f = st.selectbox("Tipo de Frota", ["Próprio", "Reserva", "Terceirizado"])
                 doc_veiculo = st.text_area("Informações Adicionais do Documento")
                 upload_crlv = st.file_uploader("Upload do CRLV Digital (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
                 
@@ -235,10 +248,11 @@ else:
                         conteudo_crlv = upload_crlv.read() if upload_crlv is not None else None
                         cursor = conn.cursor()
                         try:
-                            cursor.execute("INSERT INTO veiculos VALUES (?, ?, ?, 'Disponível', ?, ?, ?, ?, ?)",
-                                           (nova_placa, novo_modelo, km_inicial, km_revisao, trecho_inicial, tipo_f, doc_veiculo, conteudo_crlv))
+                            # Inserção atualizada contemplando as novas 12 colunas da tabela veiculos
+                            cursor.execute("INSERT INTO veiculos VALUES (?, ?, ?, 'Disponível', ?, ?, ?, ?, ?, ?, ?, NULL)",
+                                           (nova_placa, novo_modelo, km_inicial, km_revisao, trecho_inicial, tipo_f, doc_veiculo, conteudo_crlv, locadora_nome, data_locacao_str))
                             conn.commit()
-                            st.success(f"✅ Veículo {nova_placa} cadastrado com o CRLV anexado!")
+                            st.success(f"✅ Veículo {nova_placa} cadastrado com sucesso!")
                         except sqlite3.IntegrityError:
                             st.error("❌ Essa placa já existe no sistema.")
                         st.rerun()
@@ -271,9 +285,7 @@ else:
 
         with tab_downloads:
             st.subheader("Download e Visualização de Ficheiros BLOB")
-            # 3. Download e Visualização de Arquivos Restabelecidos
             col_down1, col_down2 = st.columns(2)
-            
             with col_down1:
                 st.write("📂 **CRLV por Veículo**")
                 try:
@@ -287,7 +299,6 @@ else:
                         st.info("Nenhum CRLV armazenado no momento.")
                 except Exception as e:
                     st.error(f"Erro ao ler CRLV: {e}")
-                    
             with col_down2:
                 st.write("📂 **CNH por Condutor**")
                 try:
@@ -331,19 +342,16 @@ else:
             with st.form("form_km"):
                 escolha_v = st.selectbox("Selecione o Veículo", df_veiculos['placa'])
                 novo_km = st.number_input("Novo KM", min_value=0)
-                
-                # Obtém o KM atual salvo no banco de dados para a validação inteligente
                 km_atual_banco = int(df_veiculos[df_veiculos['placa'] == escolha_v]['km_atual'].values[0])
                 
                 if st.form_submit_button("Atualizar"):
-                    # 4. Validação Inteligente de KM
                     if novo_km <= km_atual_banco:
-                        st.error(f"❌ Erro de Consistência: O novo KM ({novo_km}) não pode ser menor ou igual ao KM atual do veículo ({km_atual_banco}).")
+                        st.error(f"❌ Erro de Consistência: O novo KM ({novo_km}) não pode ser menor ou igual ao KM atual ({km_atual_banco}).")
                     else:
                         cursor = conn.cursor()
                         cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km, escolha_v))
                         conn.commit()
-                        st.success(f"✅ KM do veículo {escolha_v} atualizado com sucesso!")
+                        st.success(f"✅ KM do veículo {escolha_v} atualizado!")
                         st.rerun()
 
     elif escolha == "📋 Checklist de Campo":
@@ -360,13 +368,37 @@ else:
                 
                 if st.form_submit_button("Enviar Checklist"):
                     cursor = conn.cursor()
-                    data_atual = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    data_atual_completa = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    data_hoje_str = datetime.now().strftime("%Y-%m-%d")
+                    
+                    # Salva o checklist padrão
                     cursor.execute('''INSERT INTO checklists 
                                    (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) 
                                    VALUES (?,?,?,?,?,?,?,?)''',
-                                   (placa, tipo, km, combustivel, avarias, pneus, operador, data_atual))
+                                   (placa, tipo, km, combustivel, avarias, pneus, operador, data_atual_completa))
+                    
+                    # MELHORIA CRÍTICA: Lógica automatizada para Devolução de Locadora
+                    if tipo == "Devolução":
+                        cursor.execute("SELECT data_locacao, tipo_frota FROM veiculos WHERE placa = ?", (placa,))
+                        dados_v = cursor.fetchone()
+                        
+                        # Altera o status do veículo para Disponível
+                        cursor.execute("UPDATE veiculos SET status = 'Disponível', data_devolucao = ? WHERE placa = ?", (data_hoje_str, placa))
+                        
+                        if dados_v and dados_v[1] == "Locadora" and dados_v[0]:
+                            try:
+                                d1 = datetime.strptime(dados_v[0], "%Y-%m-%d")
+                                d2 = datetime.strptime(data_hoje_str, "%Y-%m-%d")
+                                dias_utilizados = abs((d2 - d1).days)
+                                st.success(f"🔄 Devolução Processada! O veículo da Locadora rodou por {dias_utilizados} dias desde {dados_v[0]}.")
+                            except Exception:
+                                pass
+                        else:
+                            st.success("✅ Devolução registada! Status do veículo atualizado para 'Disponível'.")
+                    else:
+                        st.success("✅ Checklist enviado e sincronizado com sucesso!")
+                        
                     conn.commit()
-                    st.success("✅ Checklist enviado e sincronizado com sucesso!")
                     st.rerun()
 
     elif escolha == "⛽ Abastecimento":
