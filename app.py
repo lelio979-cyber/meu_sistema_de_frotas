@@ -74,10 +74,6 @@ if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
     st.session_state['auth'] = False
     st.rerun()
 
-# Força a leitura atualizada dos veículos para os menus de seleção
-try: df_glob = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-except: df_glob = pd.DataFrame(columns=['placa'])
-
 # --- MÓDULO: DASHBOARD ---
 if menu == "📊 Dashboard":
     st.title("📊 Painel Executivo de Frotas")
@@ -172,4 +168,43 @@ elif menu == "📋 Visualizar & Editar":
         else: st.info("Nenhum veículo cadastrado na base de dados.")
             
     with t_m:
-        df_m = pd.read_sql
+        df_m = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento FROM motoristas", conn)
+        if not df_m.empty:
+            edit_m = st.data_editor(df_m, num_rows="dynamic", use_container_width=True, key="ed_mt")
+            if st.button("💾 Salvar Alterações de Motoristas"):
+                conn.cursor().execute("DELETE FROM motoristas")
+                for _, r in edit_m.iterrows():
+                    conn.cursor().execute(
+                        "INSERT OR REPLACE INTO motoristas (nome, cnh_numero, cnh_vencimento) "
+                        "VALUES (?, ?, ?)", (r['nome'], r['cnh_numero'], r['cnh_vencimento'])
+                    )
+                conn.commit(); st.success("Motoristas Atualizados!"); st.rerun()
+        else: st.info("Nenhum motorista cadastrado na base de dados.")
+
+# --- MÓDULO: ATUALIZAR KM ---
+elif menu == "📍 Atualizar KM":
+    st.title("📍 Atualizar Hodômetro")
+    df_KM_atual = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    if not df_KM_atual.empty:
+        with st.form("f_km"):
+            pl = st.selectbox("Selecione o Veículo", df_KM_atual['placa'])
+            old = int(pd.read_sql_query(f"SELECT km_atual FROM veiculos WHERE placa='{pl}'", conn)['km_atual'].values[0])
+            st.metric("Hodômetro Atual", f"{old} KM")
+            nv = st.number_input("Novo KM Rodado", min_value=0, step=1)
+            if st.form_submit_button("Gravar Novo KM"):
+                if nv <= old: st.error(f"Deve ser maior que {old} KM.")
+                else:
+                    conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (nv, pl))
+                    conn.commit(); st.success("KM atualizado!"); st.rerun()
+    else: st.warning("Por favor, cadastre um veículo primeiro na aba 'Cadastros'.")
+
+# --- MÓDULO: CHECKLIST ---
+elif menu == "📝 Checklist de Campo":
+    st.title("📝 Checklist Operacional de Campo")
+    df_chk_atual = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    if not df_chk_atual.empty:
+        with st.form("f_chk", clear_on_submit=True):
+            pl = st.selectbox("Veículo", df_chk_atual['placa'])
+            tp = st.selectbox("Movimentação", ["Entrada", "Saída", "Novo Contrato", "Devolução"])
+            km = st.number_input("KM Atual", min_value=0)
+            tk = st.selectbox("Combustível",
