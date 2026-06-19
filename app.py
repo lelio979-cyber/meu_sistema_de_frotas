@@ -276,34 +276,96 @@ elif menu == "🚗 Cadastros":
 # --- MÓDULO: VISUALIZAR & EDITAR ---
 elif menu == "📋 Visualizar & Editar":
     st.title("📋 Central de Dados Dinâmica")
-    t_v, t_m = st.tabs(["Frota", "Motoristas"])
+    st.markdown("Visualize, edite as informações em tempo real ou baixe os documentos anexados.")
+    
+    t_v, t_m = st.tabs(["🚗 Frota Cadastrada", "👤 Motoristas Cadastrados"])
+    
     with t_v:
-        df_v = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota FROM veiculos", conn)
+        df_v = pd.read_sql_query(
+            "SELECT placa, modelo, ano, cor, combustivel, km_atual, km_proxima_revisao, status, trecho, tipo_frota, renavam, chassi, documento, locadora_nome FROM veiculos", conn
+        )
         if not df_v.empty:
+            st.markdown("##### 📝 Tabela de Veículos (Dê um duplo clique na célula para editar)")
             edit_v = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
-            if st.button("💾 Salvar Alterações da Frota"):
-                conn.cursor().execute("DELETE FROM veiculos")
-                for _, r in edit_v.iterrows():
-                    conn.cursor().execute(
-                        "INSERT OR REPLACE INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-                        (r['placa'], r['modelo'], r['km_atual'], r['status'], r['km_proxima_revisao'], r['trecho'], r['tipo_frota'])
-                    )
-                conn.commit(); st.success("Frota Atualizada!"); st.rerun()
-        else: st.info("Nenhum veículo cadastrado.")
+            
+            if st.button("💾 Salvar Alterações da Frota", type="primary"):
+                try:
+                    # Atualiza os dados mantendo os arquivos blob intocados
+                    for _, r in edit_v.iterrows():
+                        conn.cursor().execute(
+                            "INSERT OR REPLACE INTO veiculos (placa, modelo, ano, cor, combustivel, km_atual, km_proxima_revisao, status, trecho, tipo_frota, renavam, chassi, documento, locadora_nome, arquivo_crlv) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT arquivo_crlv FROM veiculos WHERE placa = ?))",
+                            (r['placa'], r['modelo'], r['ano'], r['cor'], r['combustivel'], r['km_atual'], r['km_proxima_revisao'], r['status'], r['trecho'], r['tipo_frota'], r['renavam'], r['chassi'], r['documento'], r['locadora_nome'], r['placa'])
+                        )
+                    # Remove veículos que foram deletados no editor
+                    placas_ativas = tuple(edit_v['placa'].tolist())
+                    if len(placas_ativas) == 1:
+                        conn.cursor().execute(f"DELETE FROM veiculos WHERE placa != '{placas_ativas[0]}'")
+                    elif len(placas_ativas) > 1:
+                        conn.cursor().execute(f"DELETE FROM veiculos WHERE placa NOT IN {placas_ativas}")
+                    
+                    conn.commit()
+                    st.success("✅ Banco de dados da frota sincronizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao salvar alterações: {e}")
+            
+            st.markdown("---")
+            st.markdown("##### 📥 Download de Documentos (CRLV)")
+            placa_doc = st.selectbox("Escolha o veículo para baixar o CRLV", df_v['placa'])
+            res_crlv = conn.cursor().execute("SELECT arquivo_crlv FROM veiculos WHERE placa = ?", (placa_doc,)).fetchone()
+            if res_crlv and res_crlv[0]:
+                st.download_button(label="📄 Baixar CRLV Anexado", data=res_crlv[0], file_name=f"CRLV_{placa_doc}.pdf", mime="application/octet-stream")
+            else:
+                st.info("Este veículo não possui arquivo de CRLV digitalizado.")
+        else:
+            st.info("Nenhum veículo cadastrado na base de dados.")
+            
     with t_m:
-        df_m = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento FROM motoristas", conn)
+        df_m = pd.read_sql_query("SELECT nome, cpf, telefone, cnh_numero, categoria_cnh, cnh_vencimento, termo_aceite FROM motoristas", conn)
         if not df_m.empty:
+            st.markdown("##### 📝 Tabela de Motoristas (Dê um duplo clique na célula para editar)")
             edit_m = st.data_editor(df_m, num_rows="dynamic", use_container_width=True)
-            if st.button("💾 Salvar Alterações de Motoristas"):
-                conn.cursor().execute("DELETE FROM motoristas")
-                for _, r in edit_m.iterrows():
-                    conn.cursor().execute(
-                        "INSERT OR REPLACE INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?, ?, ?)", 
-                        (r['nome'], r['cnh_numero'], r['cnh_vencimento'])
-                    )
-                conn.commit(); st.success("Motoristas Atualizados!"); st.rerun()
-        else: st.info("Nenhum motorista cadastrado.")
-
+            
+            if st.button("💾 Salvar Alterações de Motoristas", type="primary"):
+                try:
+                    for _, r in edit_m.iterrows():
+                        conn.cursor().execute(
+                            "INSERT OR REPLACE INTO motoristas (nome, cpf, telefone, cnh_numero, categoria_cnh, cnh_vencimento, termo_aceite, arquivo_cnh, arquivo_termo) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT arquivo_cnh FROM motoristas WHERE nome = ?), (SELECT arquivo_termo FROM motoristas WHERE nome = ?))",
+                            (r['nome'], r['cpf'], r['telefone'], r['cnh_numero'], r['categoria_cnh'], r['cnh_vencimento'], r['termo_aceite'], r['nome'], r['nome'])
+                        )
+                    # Remove motoristas que foram deletados no editor
+                    nomes_ativos = tuple(edit_m['nome'].tolist())
+                    if len(nomes_ativos) == 1:
+                        conn.cursor().execute(f"DELETE FROM motoristas WHERE nome != '{nomes_ativos[0]}'")
+                    elif len(nomes_ativos) > 1:
+                        conn.cursor().execute(f"DELETE FROM motoristas WHERE nome NOT IN {nomes_ativos}")
+                        
+                    conn.commit()
+                    st.success("✅ Banco de dados de motoristas sincronizado com sucesso!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao salvar alterações: {e}")
+                    
+            st.markdown("---")
+            st.markdown("##### 📥 Download de Documentos (CNH e Termos)")
+            mot_doc = st.selectbox("Escolha o motorista para baixar os arquivos", df_m['nome'])
+            res_mot = conn.cursor().execute("SELECT arquivo_cnh, arquivo_termo FROM motoristas WHERE nome = ?", (mot_doc,)).fetchone()
+            
+            col_d1, col_d2 = st.columns(2)
+            with col_d1:
+                if res_mot and res_mot[0]:
+                    st.download_button(label="🪪 Baixar CNH Digitalizada", data=res_mot[0], file_name=f"CNH_{mot_doc}.pdf", mime="application/octet-stream")
+                else:
+                    st.info("Sem CNH anexada para este condutor.")
+            with col_d2:
+                if res_mot and res_mot[1]:
+                    st.download_button(label="📝 Baixar Termo de Uso", data=res_mot[1], file_name=f"Termo_{mot_doc}.pdf", mime="application/octet-stream")
+                else:
+                    st.info("Sem Termo de Uso anexado para este condutor.")
+        else:
+            st.info("Nenhum motorista cadastrado na base de dados.")
 # --- MÓDULO: ATUALIZAR KM ---
 elif menu == "📍 Atualizar KM":
     st.title("📍 Atualizar Hodômetro")
