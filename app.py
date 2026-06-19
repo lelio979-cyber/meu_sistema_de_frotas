@@ -92,7 +92,7 @@ else:
         
     escolha = st.sidebar.radio("Navegação:", opcoes_menu)
     
-    if st.sidebar.button("🚪 Sair do Sistema", color="red"):
+    if st.sidebar.button("🚪 Sair do Sistema", type="primary"):
         st.session_state['autenticado'] = False
         st.session_state['perfil'] = None
         st.rerun()
