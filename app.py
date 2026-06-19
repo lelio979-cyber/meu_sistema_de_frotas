@@ -96,15 +96,36 @@ if not st.session_state['autenticado']:
                 st.session_state['perfil_logado'] = resultado[0]
                 st.rerun()
             else:
-                st.error("Usuário ou senha incorretos. (if st.form_submit_button("Entrar no Sistema", use_container_width=True):
-            cursor = conn.cursor()
-            hash_procurado = gerar_hash(input_senha)
-            cursor.execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (input_usuario, hash_procurado))
-            resultado = cursor.fetchone()
-            if resultado:
-                st.session_state['autenticado'] = True
-                st.session_state['usuario_logado'] = input_usuario
-                st.session_state['perfil_logado'] = resultado[0]
-                st.rerun()
-            else:
                 st.error("Usuário ou senha incorretos. (Padrão: admin / admin123)")
+    st.stop()
+
+# --- SE CHEGOU AQUI, O USUÁRIO ESTÁ AUTENTICADO ---
+st.sidebar.title("FleetX Control")
+st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
+st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
+
+if st.session_state['perfil_logado'] == 'Gestor':
+    opcoes_menu = [
+        "📊 Dashboard & KPIs", 
+        "📋 Auditoria Geral de Operações",
+        "🚗 Cadastros Gerais (Frota/Motoristas)", 
+        "👥 Controle de Usuários",  
+        "📍 Atualização de KM Diária",
+        "📋 Checklist de Campo", 
+        "⛽ Abastecimento", 
+        "🛠️ OS & Aprovações", 
+        "⚠️ Multas Automatizadas", 
+        "📝 Gestão de Contratos & Sinistros"
+    ]
+else:
+    opcoes_menu = [
+        "📍 Atualização de KM Diária", 
+        "📋 Checklist de Campo", 
+        "⛽ Abastecimento",
+        "📋 Auditoria Geral de Operações"
+    ]
+    
+escolha = st.sidebar.radio("Navegação:", opcoes_menu)
+
+if st.sidebar.button("🚪 Desconectar / Sair", type="primary"):
+    st.session_state
