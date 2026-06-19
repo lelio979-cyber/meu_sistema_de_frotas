@@ -82,11 +82,13 @@ else:
     st.sidebar.title("FleetX Control")
     st.sidebar.write(f"**Perfil ativo:** {st.session_state['perfil'].upper()}")
     
-    opcoes_menu = ["📋 Checklist de Campo", "⛽ Abastecimento"]
+    # Menu dinâmico: Adicionado o KM Diário para os dois perfis
+    opcoes_menu = ["📍 Atualização de KM Diária", "📋 Checklist de Campo", "⛽ Abastecimento"]
     if st.session_state['perfil'] == 'gestor':
         opcoes_menu = [
             "📊 Dashboard & KPIs", 
             "🚗 Cadastros Gerais (Frota/Motoristas)", 
+            "📍 Atualização de KM Diária",
             "📋 Checklist de Campo", 
             "⛽ Abastecimento", 
             "🛠️ OS & Aprovações", 
@@ -102,9 +104,39 @@ else:
         st.rerun()
 
     # ==========================================
-    # 3. MÓDULO: CADASTROS GERAIS
+    # 3. MÓDULO NOVO: ATUALIZAÇÃO RÁPIDA DE KM DIÁRIA (FOCO CAMPO)
     # ==========================================
-    if escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
+    if escolha == "📍 Atualização de KM Diária":
+        st.title("📍 Lançamento Rápido de KM Diário")
+        st.caption("Interface simplificada: Apenas 2 cliques para manter a frota atualizada.")
+        
+        df_veiculos = pd.read_sql_query("SELECT placa, modelo, km_atual FROM veiculos", conn)
+        
+        with st.form("form_km_diario", clear_on_submit=True):
+            # Mostra a placa e o modelo do veículo lado a lado
+            lista_veiculos = [f"{row['placa']} - {row['modelo']} (Atual: {row['km_atual']} KM)" for _, row in df_veiculos.iterrows()]
+            escolha_v = st.selectbox("Selecione o Veículo", lista_veiculos)
+            
+            # Extrai apenas a placa do texto selecionado
+            placa_selecionada = escolha_v.split(" - ")[0]
+            
+            # Busca o KM atual correspondente para servir de referência mínima
+            km_referencia = int(df_veiculos[df_veiculos['placa'] == placa_selecionada]['km_atual'].values[0])
+            
+            novo_km_diario = st.number_input("Digite o KM atual do Painel", min_value=km_referencia, step=1, help="O valor não pode ser menor do que o KM registrado anteriormente.")
+            
+            salvar_km = st.form_submit_button("Atualizar Quilometragem Agora")
+            if salvar_km:
+                cursor = conn.cursor()
+                # Atualiza a tabela principal do veículo com a nova rodagem
+                cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km_diario, placa_selecionada))
+                conn.commit()
+                st.success(f"⚡ Sucesso! Veículo {placa_selecionada} atualizado para {novo_km_diario} KM. Painel do gestor sincronizado.")
+
+    # ==========================================
+    # 4. MÓDULO: CADASTROS GERAIS
+    # ==========================================
+    elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
         st.title("🚗 Central de Cadastros Corporativos")
         
         tab_veic, tab_mot = st.tabs(["Cadastrar Veículo & Documento", "Cadastrar Motorista & CNH"])
@@ -155,7 +187,7 @@ else:
                         st.error("Preencha todos os dados e valide o termo.")
 
     # ==========================================
-    # 4. MÓDULO: CHECKLIST DE CAMPO
+    # 5. MÓDULO: CHECKLIST DE CAMPO
     # ==========================================
     elif escolha == "📋 Checklist de Campo":
         st.title("📋 Checklist Prático de Entrada e Saída")
@@ -181,7 +213,7 @@ else:
                 st.success(f"✅ Checklist enviado! KM atualizado na base para {km} KM.")
 
     # ==========================================
-    # 5. MÓDULO: ABASTECIMENTO
+    # 6. MÓDULO: ABASTECIMENTO
     # ==========================================
     elif escolha == "⛽ Abastecimento":
         st.title("⛽ Lançamento de Abastecimento")
@@ -202,7 +234,7 @@ else:
                 st.success("⛽ Gasto computado!")
 
     # ==========================================
-    # 6. MÓDULO: OS & APROVAÇÕES
+    # 7. MÓDULO: OS & APROVAÇÕES
     # ==========================================
     elif escolha == "🛠️ OS & Aprovações":
         st.title("🛠️ Fluxo de Ordens de Serviço")
@@ -244,7 +276,6 @@ else:
                     elif row['status'] == 'Em Andamento':
                         if col3.button("🔒 Encerrar", key=f"en_{row['id']}"):
                             cursor = conn.cursor()
-                            # Quando encerra a revisão, define a próxima revisão para daqui a 10.000 KM automáticos
                             cursor.execute("SELECT km_atual FROM veiculos WHERE placa = ?", (row['placa'],))
                             km_atual_v = cursor.fetchone()[0]
                             prox_revisao_nova = km_atual_v + 10000
@@ -257,7 +288,7 @@ else:
                             st.rerun()
 
     # ==========================================
-    # 7. MÓDULO: MULTAS AUTOMATIZADAS
+    # 8. MÓDULO: MULTAS AUTOMATIZADAS
     # ==========================================
     elif escolha == "⚠️ Multas Automatizadas":
         st.title("⚠️ Lançamento de Infrações")
@@ -279,7 +310,7 @@ else:
                 st.success(f"🚨 Autopreenchido: {info['desc']} | Valor: R$ {info['valor']}")
 
     # ==========================================
-    # 8. MÓDULO: CONTRATOS & SINISTROS
+    # 9. MÓDULO: CONTRATOS & SINISTROS
     # ==========================================
     elif escolha == "📝 Gestão de Contratos & Sinistros":
         st.title("📝 Custos Administrativos")
@@ -294,75 +325,4 @@ else:
             conn.commit()
             st.success("Custo integrado.")
 
-    # ==========================================
-    # 9. MÓDULO: DASHBOARD, KPIS E CONTROLE DE KM
-    # ==========================================
-    elif escolha == "📊 Dashboard & KPIs":
-        st.title("📊 Painel Executivo de Tomada de Decisão")
-        
-        # --- TABELA DE CONTROLE DE KM SOLICITADA ---
-        st.subheader("🚗 Painel de Controle de KM & Previsão de Revisões")
-        st.caption("Acompanhamento em tempo real de quanto resta rodar antes da próxima parada preventiva (Troca de óleo de 10k em 10k KM).")
-        
-        # Busca dados das metas de KM
-        df_frotakm = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status FROM veiculos", conn)
-        
-        # Faz os cálculos matemáticos diretamente na tabela
-        df_frotakm['KM Restante para Rodar'] = df_frotakm['km_proxima_revisao'] - df_frotakm['km_atual']
-        
-        # Cria uma coluna com o status do prazo
-        def avaliar_prazo(restante):
-            if restante <= 0:
-                return "🚨 CRÍTICO - KM VENCIDO!"
-            elif restante <= 1500:
-                return "⚠️ ALERTA - Agendar Oficina"
-            else:
-                return "🟢 Seguro (Rodando)"
-                
-        df_frotakm['Status do Prazo'] = df_frotakm['KM Restante para Rodar'].apply(avaliar_prazo)
-        
-        # Organiza as colunas bonitas para exibição
-        df_exibicao = df_frotakm[['placa', 'modelo', 'km_atual', 'km_proxima_revisao', 'KM Restante para Rodar', 'Status do Prazo', 'status']]
-        df_exibicao.columns = ['Placa', 'Modelo', 'KM Atual', 'Meta da Próxima Revisão', 'KM Restante para Rodar', 'Status do Prazo', 'Status Operacional']
-        
-        st.dataframe(df_exibicao, use_container_width=True)
-        
-        st.divider()
-
-        # --- ALERTAS RÁPIDOS ---
-        col_al1, col_al2 = st.columns(2)
-        with col_al1:
-            for _, r in df_frotakm.iterrows():
-                if r['KM Restante para Rodar'] <= 1500:
-                    st.error(f"Bloqueio Preditivo: {r['placa']} restam apenas {r['KM Restante para Rodar']} KM antes da revisão!")
-        with col_al2:
-            df_mot = pd.read_sql_query("SELECT * FROM motoristas", conn)
-            for _, r in df_mot.iterrows():
-                venc = datetime.strptime(r['cnh_vencimento'], "%Y-%m-%d")
-                if venc <= datetime.now() + timedelta(days=60):
-                    st.warning(f"CNH Próxima do Vencimento: Condutor {r['nome']} vence em {venc.strftime('%d/%m/%Y')}")
-
-        st.divider()
-
-        # --- FINANCEIRO E GRÁFICOS ---
-        df_fin = pd.read_sql_query("SELECT * FROM financeiro", conn)
-        total_geral = df_fin['valor'].sum() if not df_fin.empty else 0.0
-        c_comb = df_fin[df_fin['tipo_custo'] == 'Combustível']['valor'].sum()
-        c_man = df_fin[df_fin['tipo_custo'] == 'Manutenção']['valor'].sum()
-        
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Custo Total de Operação", f"R$ {total_geral:,.2f}")
-        kpi2.metric("Total Cartão Combustível", f"R$ {c_comb:,.2f}")
-        kpi3.metric("Investimento em Oficinas", f"R$ {c_man:,.2f}")
-        
-        if not df_fin.empty:
-            grafico_data = df_fin.groupby('tipo_custo')['valor'].sum().reset_index()
-            chart = alt.Chart(grafico_data).mark_bar(color='#1f6aa5').encode(
-                x=alt.X('tipo_custo:N', title='Natureza do Custo'),
-                y=alt.Y('valor:Q', title='Total Acumulado (R$)')
-            ).properties(height=300)
-            st.altair_chart(chart, use_container_width=True)
-            
-        st.subheader("📥 Exportação de Relatórios Gerenciais")
-        df_chk_rep = pd.read_sql_query("SELECT * FROM checklists", conn)
-        st.download_button("Exportar Planilha de Checklists (CSV)", df_chk_rep.to_csv(index=False), "relatorio_checklists.csv", "text/csv")
+    # =================================
