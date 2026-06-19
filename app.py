@@ -11,18 +11,19 @@ def ger_hash(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 def init_db():
-    conn = sqlite3.connect('frotas_v7.db', check_same_thread=False)
+    # Mudamos para v8 para forçar a criação de um banco totalmente limpo
+    conn = sqlite3.connect('frotas_v8.db', check_same_thread=False)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS usuarios "
               "(usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS veiculos "
               "(placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, "
               "status TEXT DEFAULT 'Disponível', km_proxima_revisao INTEGER, "
-              "trecho TEXT, tipo_frota TEXT, documento TEXT, arquivo_crlv BLOB, "
-              "locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)")
+              "trecho TEXT, tipo_frota TEXT, documento TEXT, "
+              "locadora_nome TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS motoristas "
               "(nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, "
-              "termo_aceite TEXT, arquivo_cnh BLOB, arquivo_termo BLOB)")
+              "termo_aceite TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS checklists "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, "
               "tipo_movimentacao TEXT, km INTEGER, combustivel TEXT, "
@@ -141,4 +142,112 @@ elif menu == "🚗 Cadastros":
                     conn.commit(); st.success("Motorista cadastrado!"); st.rerun()
                 except: st.error("Erro ao cadastrar.")
 
-# --- MÓDULO:
+# --- MÓDULO: VISUALIZAR & EDITAR ---
+elif menu == "📋 Visualizar & Editar":
+    st.title("📋 Central de Dados Dinâmica")
+    t_v, t_m = st.tabs(["Frota", "Motoristas"])
+    with t_v:
+        df_v = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota FROM veiculos", conn)
+        if not df_v.empty:
+            edit_v = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
+            if st.button("💾 Salvar Alterações da Frota"):
+                conn.cursor().execute("DELETE FROM veiculos")
+                for _, r in edit_v.iterrows():
+                    conn.cursor().execute(
+                        "INSERT OR REPLACE INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                        (r['placa'], r['modelo'], r['km_atual'], r['status'], r['km_proxima_revisao'], r['trecho'], r['tipo_frota'])
+                    )
+                conn.commit(); st.success("Frota Atualizada!"); st.rerun()
+        else: st.info("Nenhum veículo cadastrado.")
+    with t_m:
+        df_m = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento FROM motoristas", conn)
+        if not df_m.empty:
+            edit_m = st.data_editor(df_m, num_rows="dynamic", use_container_width=True)
+            if st.button("💾 Salvar Alterações de Motoristas"):
+                conn.cursor().execute("DELETE FROM motoristas")
+                for _, r in edit_m.iterrows():
+                    conn.cursor().execute(
+                        "INSERT OR REPLACE INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?, ?, ?)", 
+                        (r['nome'], r['cnh_numero'], r['cnh_vencimento'])
+                    )
+                conn.commit(); st.success("Motoristas Atualizados!"); st.rerun()
+        else: st.info("Nenhum motorista cadastrado.")
+
+# --- MÓDULO: ATUALIZAR KM ---
+elif menu == "📍 Atualizar KM":
+    st.title("📍 Atualizar Hodômetro")
+    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    if not df_l.empty:
+        with st.form("f_km"):
+            pl = st.selectbox("Selecione o Veículo", df_l['placa'])
+            old = int(pd.read_sql_query(f"SELECT km_atual FROM veiculos WHERE placa='{pl}'", conn)['km_atual'].values[0])
+            st.metric("Hodômetro Atual", f"{old} KM")
+            nv = st.number_input("Novo KM Rodado", min_value=0, step=1)
+            if st.form_submit_button("Gravar Novo KM"):
+                if nv <= old: st.error("Deve ser maior.")
+                else:
+                    conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (nv, pl))
+                    conn.commit(); st.success("KM atualizado!"); st.rerun()
+    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+
+# --- MÓDULO: CHECKLIST ---
+elif menu == "📝 Checklist de Campo":
+    st.title("📝 Checklist Operacional de Campo")
+    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    if not df_l.empty:
+        with st.form("f_chk", clear_on_submit=True):
+            pl = st.selectbox("Veículo", df_l['placa'])
+            tp = st.selectbox("Movimentação", ["Entrada", "Saída"])
+            km = st.number_input("KM Atual", min_value=0)
+            tk = st.selectbox("Combustível", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
+            pn = st.radio("Pneus", ["Regular", "Troca Necessária"])
+            av = st.text_input("Avarias Visuais")
+            if st.form_submit_button("Submeter Checklist"):
+                ag = datetime.now().strftime("%Y-%m-%d %H:%M")
+                conn.cursor().execute(
+                    "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
+                    (pl, tp, km, tk, av, pn, st.session_state['u_log'], ag)
+                )
+                conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, pl))
+                conn.commit(); st.success("Checklist salvo!"); st.rerun()
+    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+
+# --- MÓDULO: ABASTECIMENTO ---
+elif menu == "⛽ Abastecimento":
+    st.title("⛽ Lançamento de Abastecimento Financeiro")
+    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    if not df_l.empty:
+        with st.form("f_abs", clear_on_submit=True):
+            pl = st.selectbox("Veículo", df_l['placa'])
+            val = st.number_input("Valor Pago (R$)", min_value=0.0, step=10.0)
+            if st.form_submit_button("Lançar Nota"):
+                if val > 0:
+                    conn.cursor().execute(
+                        "INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", 
+                        (pl, val, datetime.now().strftime("%Y-%m-%d"))
+                    )
+                    conn.commit(); st.success("Registrado!"); st.rerun()
+    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+
+# --- MÓDULO: ORDENS DE SERVIÇO ---
+elif menu == "🛠️ Ordens de Serviço":
+    st.title("🛠️ Gestão de Ordens de Serviço (O.S.)")
+    t1, t2 = st.tabs(["Abrir Nova O.S.", "Histórico"])
+    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    with t1:
+        if not df_l.empty:
+            with st.form("f_os", clear_on_submit=True):
+                pl = st.selectbox("Veículo", df_l['placa'])
+                tp = st.selectbox("Tipo", ["Preventiva", "Corretiva"])
+                cst = st.number_input("Custo (R$)", min_value=0.0, step=50.0)
+                desc = st.text_area("Descrição")
+                if st.form_submit_button("Emitir O.S."):
+                    dt = datetime.now().strftime("%Y-%m-%d")
+                    conn.cursor().execute("INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data) VALUES (?, ?, ?, ?, 'Pendente', ?)", (pl, tp, desc, cst, dt))
+                    conn.commit(); st.success("O.S. registrada!"); st.rerun()
+        else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+    with t2:
+        df_os = pd.read_sql_query("SELECT * FROM ordens_servico ORDER BY id DESC", conn)
+        if not df_os.empty:
+            st.dataframe(df_os, use_container_width=True)
+        else: st.info("Nenhuma O.S. gerada.")
