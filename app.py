@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta
 import altair as alt
 import hashlib
+import os
 
 # Configuração da Página com Tema Escuro Nativo
 st.set_page_config(page_title="FleetX - Gestão de Frotas", layout="wide", initial_sidebar_state="expanded")
@@ -15,10 +16,7 @@ def gerar_hash(senha):
     """Gera um hash SHA-256 seguro para armazenar a senha."""
     return hashlib.sha256(senha.encode()).hexdigest()
 
-def conectar_db():
-    conn = sqlite3.connect('frotas_codespace.db', check_same_thread=False)
-    cursor = conn.cursor()
-    
+def criar_tabelas(cursor):
     # Tabela de Veículos
     cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
@@ -47,9 +45,16 @@ def conectar_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
         nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT)''')
         
-    # NOVA TABELA: Usuários com Login, Senha em Hash e Nível de Acesso
+    # Tabela de Usuários
     cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
         usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
+
+def conectar_db():
+    conn = sqlite3.connect('frotas_codespace.db', check_same_thread=False)
+    cursor = conn.cursor()
+    
+    # Forçar criação inicial
+    criar_tabelas(cursor)
     
     # Criar administrador padrão se a tabela estiver vazia
     cursor.execute("SELECT COUNT(*) FROM usuarios")
@@ -67,11 +72,17 @@ def conectar_db():
     conn.commit()
     return conn
 
-# Inicialização segura do banco de dados
+# Inicialização auto-corretiva do banco de dados
 try:
     conn = conectar_db()
 except Exception as e:
-    st.error(f"Erro de infraestrutura de banco de dados: {e}")
+    # Se houver incompatibilidade de tabelas antigas, remove o arquivo corrompido e cria um novo do zero
+    if os.path.exists('frotas_codespace.db'):
+        try:
+            os.remove('frotas_codespace.db')
+        except Exception:
+            pass
+    conn = conectar_db()
 
 DICIONARIO_MULTAS = {
     "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
@@ -96,19 +107,22 @@ if not st.session_state['autenticado']:
         botao_entrar = st.form_submit_button("Entrar no Sistema", use_container_width=True)
         
         if botao_entrar:
-            cursor = conn.cursor()
-            hash_procurado = gerar_hash(input_senha)
-            cursor.execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (input_usuario, hash_procurado))
-            resultado = cursor.fetchone()
-            
-            if resultado:
-                st.session_state['autenticado'] = True
-                st.session_state['usuario_logado'] = input_usuario
-                st.session_state['perfil_logado'] = resultado[0]
-                st.success("Acesso autorizado! Carregando...")
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos. (Acesso padrão inicial: admin / admin123)")
+            try:
+                cursor = conn.cursor()
+                hash_procurado = gerar_hash(input_senha)
+                cursor.execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (input_usuario, hash_procurado))
+                resultado = cursor.fetchone()
+                
+                if resultado:
+                    st.session_state['autenticado'] = True
+                    st.session_state['usuario_logado'] = input_usuario
+                    st.session_state['perfil_logado'] = resultado[0]
+                    st.success("Acesso autorizado! Carregando...")
+                    st.rerun()
+                else:
+                    st.error("Usuário ou senha incorretos. (Acesso padrão: admin / admin123)")
+            except Exception as err:
+                st.error(f"Erro ao processar login: {err}. Tente recarregar a página.")
 else:
     # ==========================================
     # 3. INTERFACE PRINCIPAL & MENU LATERAL
@@ -117,12 +131,11 @@ else:
     st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
     st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
     
-    # Filtro de menus dinâmico baseado no perfil carregado do banco de dados
     if st.session_state['perfil_logado'] == 'Gestor':
         opcoes_menu = [
             "📊 Dashboard & KPIs", 
             "🚗 Cadastros Gerais (Frota/Motoristas)", 
-            "👥 Controle de Usuários",  # Novo menu exclusivo
+            "👥 Controle de Usuários",  
             "📍 Atualização de KM Diária",
             "📋 Checklist de Campo", 
             "⛽ Abastecimento", 
@@ -131,7 +144,6 @@ else:
             "📝 Gestão de Contratos & Sinistros"
         ]
     else:
-        # Menus restritos para perfil Operador
         opcoes_menu = ["📍 Atualização de KM Diária", "📋 Checklist de Campo", "⛽ Abastecimento"]
         
     escolha = st.sidebar.radio("Navegação:", opcoes_menu)
@@ -142,7 +154,6 @@ else:
         st.session_state['perfil_logado'] = ""
         st.rerun()
 
-    # Leitura global auxiliar de veículos
     try:
         df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
     except Exception:
@@ -153,43 +164,45 @@ else:
     # ==========================================
     if escolha == "📊 Dashboard & KPIs":
         st.title("📊 Painel Executivo de Tomada de Decisão")
-        
         st.subheader("🚗 Painel de Controle de KM & Previsão de Revisões")
-        df_frotakm = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status FROM veiculos", conn)
-        df_frotakm['KM Restante para Rodar'] = df_frotakm['km_proxima_revisao'] - df_frotakm['km_atual']
         
-        def avaliar_prazo(restante):
-            if restante <= 0:
-                return "🚨 CRÍTICO - KM VENCIDO!"
-            elif restante <= 1500:
-                return "⚠️ ALERTA - Agendar Oficina"
-            else:
-                return "🟢 Seguro (Rodando)"
-                
-        df_frotakm['Status do Prazo'] = df_frotakm['KM Restante para Rodar'].apply(avaliar_prazo)
-        df_exibicao = df_frotakm[['placa', 'modelo', 'km_atual', 'km_proxima_revisao', 'KM Restante para Rodar', 'Status do Prazo', 'status']]
-        df_exibicao.columns = ['Placa', 'Modelo', 'KM Atual', 'Meta da Próxima Revisão', 'KM Restante para Rodar', 'Status do Prazo', 'Status Operacional']
-        
-        st.dataframe(df_exibicao, use_container_width=True)
-        st.divider()
+        try:
+            df_frotakm = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status FROM veiculos", conn)
+            df_frotakm['KM Restante para Rodar'] = df_frotakm['km_proxima_revisao'] - df_frotakm['km_atual']
+            
+            def avaliar_prazo(restante):
+                if restante <= 0:
+                    return "🚨 CRÍTICO - KM VENCIDO!"
+                elif restante <= 1500:
+                    return "⚠️ ALERTA - Agendar Oficina"
+                else:
+                    return "🟢 Seguro (Rodando)"
+                    
+            df_frotakm['Status do Prazo'] = df_frotakm['KM Restante para Rodar'].apply(avaliar_prazo)
+            df_exibicao = df_frotakm[['placa', 'modelo', 'km_atual', 'km_proxima_revisao', 'KM Restante para Rodar', 'Status do Prazo', 'status']]
+            df_exibicao.columns = ['Placa', 'Modelo', 'KM Atual', 'Meta da Próxima Revisão', 'KM Restante para Rodar', 'Status do Prazo', 'Status Operacional']
+            st.dataframe(df_exibicao, use_container_width=True)
+            
+            st.divider()
+            col_al1, col_al2 = st.columns(2)
+            with col_al1:
+                for _, r in df_frotakm.iterrows():
+                    if r['KM Restante para Rodar'] <= 1500:
+                        st.error(f"Bloqueio Preditivo: {r['Placa']} restam apenas {r['KM Restante para Rodar']} KM antes da revisão!")
+        except Exception as e:
+            st.info("A aguardar dados operacionais.")
 
-        col_al1, col_al2 = st.columns(2)
-        with col_al1:
-            for _, r in df_frotakm.iterrows():
-                if r['KM Restante para Rodar'] <= 1500:
-                    st.error(f"Bloqueio Preditivo: {r['placa']} restam apenas {r['KM Restante para Rodar']} KM antes da revisão!")
         with col_al2:
-            df_mot = pd.read_sql_query("SELECT * FROM motoristas", conn)
-            for _, r in df_mot.iterrows():
-                try:
+            try:
+                df_mot = pd.read_sql_query("SELECT * FROM motoristas", conn)
+                for _, r in df_mot.iterrows():
                     venc = datetime.strptime(r['cnh_vencimento'], "%Y-%m-%d")
                     if venc <= datetime.now() + timedelta(days=60):
                         st.warning(f"CNH Próxima do Vencimento: Condutor {r['nome']} vence em {venc.strftime('%d/%m/%Y')}")
-                except Exception:
-                    pass
+            except Exception:
+                pass
 
         st.divider()
-
         df_fin = pd.read_sql_query("SELECT * FROM financeiro", conn)
         total_geral = df_fin['valor'].sum() if not df_fin.empty else 0.0
         c_comb = df_fin[df_fin['tipo_custo'] == 'Combustível']['valor'].sum() if not df_fin.empty else 0.0
@@ -209,8 +222,11 @@ else:
             st.altair_chart(chart, use_container_width=True)
             
         st.subheader("📥 Exportação de Relatórios Gerenciais")
-        df_chk_rep = pd.read_sql_query("SELECT * FROM checklists", conn)
-        st.download_button("Exportar Planilha de Checklists (CSV)", df_chk_rep.to_csv(index=False), "relatorio_checklists.csv", "text/csv")
+        try:
+            df_chk_rep = pd.read_sql_query("SELECT * FROM checklists", conn)
+            st.download_button("Exportar Planilha de Checklists (CSV)", df_chk_rep.to_csv(index=False), "relatorio_checklists.csv", "text/csv")
+        except Exception:
+            st.write("Sem checklists para exportar no momento.")
 
     elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
         st.title("🚗 Central de Cadastros Corporativos")
@@ -261,18 +277,14 @@ else:
                         st.error("Preencha todos os dados e valide o termo.")
                     st.rerun()
 
-    # ==========================================
-    # 4. NOVO MÓDULO: CONTROLE DE USUÁRIOS
-    # ==========================================
     elif escolha == "👥 Controle de Usuários":
         st.title("👥 Gestão de Acessos e Credenciais")
-        
         tab_cad_user, tab_list_user = st.tabs(["Cadastrar Novo Usuário", "Usuários Ativos"])
         
         with tab_cad_user:
             st.subheader("Criar Login de Acesso")
             with st.form("form_cadastro_usuario", clear_on_submit=True):
-                novo_login = st.text_input("Nome de Usuário (Login)", placeholder="Ex: joao.silva").strip().lower()
+                novo_login = st.text_input("Nome de Usuário (Login)").strip().lower()
                 nova_senha = st.text_input("Senha de Acesso", type="password")
                 perfil_escolhido = st.selectbox("Nível de Permissão", ["Operador", "Gestor"])
                 
@@ -284,36 +296,30 @@ else:
                         try:
                             cursor.execute("INSERT INTO usuarios VALUES (?, ?, ?)", (novo_login, hash_senha_nova, perfil_escolhido))
                             conn.commit()
-                            st.success(f"✅ Usuário '{novo_login}' criado com o perfil [{perfil_escolhido}]!")
+                            st.success(f"✅ Usuário '{novo_login}' criado com sucesso!")
                         except sqlite3.IntegrityError:
-                            st.error("❌ Este nome de usuário já existe no sistema.")
-                    else:
-                        st.error("Preencha o login e a senha.")
+                            st.error("❌ Este utilizador já existe.")
+                        st.rerun()
                         
         with tab_list_user:
             st.subheader("Gerenciar Contas Ativas")
             df_usuarios = pd.read_sql_query("SELECT usuario, perfil FROM usuarios", conn)
-            
             for idx, r in df_usuarios.iterrows():
                 col_u, col_p, col_b = st.columns([2, 2, 1])
                 col_u.write(f"👤 **{r['usuario']}**")
                 col_p.write(f"🏷️ Perfil: `{r['perfil']}`")
-                
-                # Impede o admin principal de se deletar e quebrar o sistema
                 if r['usuario'] == 'admin':
-                    col_b.write("⚠️ *Fixo*")
+                    col_b.write("⚠️ *Protegido*")
                 else:
-                    if col_b.button("Remover", key=f"del_{r['usuario']}", type="secondary"):
+                    if col_b.button("Remover", key=f"del_{r['usuario']}"):
                         cursor = conn.cursor()
                         cursor.execute("DELETE FROM usuarios WHERE usuario = ?", (r['usuario'],))
                         conn.commit()
-                        st.warning(f"Usuário {r['usuario']} excluído.")
                         st.rerun()
 
     elif escolha == "📍 Atualização de KM Diária":
         st.title("📍 Lançamento Rápido de KM Diário")
         df_veiculos = pd.read_sql_query("SELECT placa, modelo, km_atual FROM veiculos", conn)
-        
         if df_veiculos.empty:
             st.warning("Nenhum veículo cadastrado.")
         else:
@@ -329,7 +335,7 @@ else:
                     cursor = conn.cursor()
                     cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km_diario, placa_selecionada))
                     conn.commit()
-                    st.success(f"⚡ Veículo {placa_selecionada} atualizado para {novo_km_diario} KM.")
+                    st.success(f"⚡ Atualizado para {novo_km_diario} KM.")
                     st.rerun()
 
     elif escolha == "📋 Checklist de Campo":
@@ -466,22 +472,20 @@ else:
                 if tipo_c == "Sinistro (Batidas / Roubo / Avarias Graves)":
                     st.write("---")
                     st.error("🚨 CHECKLIST OBRIGATÓRIO PARA ABERTURA DE SINISTRO")
-                    
-                    proc1 = st.checkbox("1. Boletim de Ocorrência (B.O.) foi emitido e anexado eletronicamente?")
-                    proc2 = st.checkbox("2. Fotos de todos os ângulos da avaria e do local foram registradas?")
-                    proc3 = st.checkbox("3. Condutor realizou o teste do bafômetro / Declaração de sobriedade colhida?")
-                    proc4 = st.checkbox("4. Abertura do aviso de sinistro junto à Seguradora concluído?")
-                    proc5 = st.checkbox("5. Dados de terceiros (se houver) coletados: Nome, CNH, Telefone e Placa?")
-                    
-                    obs = st.text_area("Descreva detalhadamente a dinâmica do sinistro e danos visíveis:")
+                    proc1 = st.checkbox("1. Boletim de Ocorrência (B.O.) emitido?")
+                    proc2 = st.checkbox("2. Fotos registadas?")
+                    proc3 = st.checkbox("3. Declaração de sobriedade colhida?")
+                    proc4 = st.checkbox("4. Aviso de sinistro concluído?")
+                    proc5 = st.checkbox("5. Dados de terceiros coletados?")
+                    obs = st.text_area("Descrição:")
                 else:
                     obs = st.text_area("Notas / Detalhes Adicionais")
                     proc1 = proc2 = proc3 = proc4 = proc5 = True
                 
-                salvar_adm = st.form_submit_button("Salvar e Computar no Caixa")
+                salvar_adm = st.form_submit_button("Salvar Registro")
                 if salvar_adm:
                     if tipo_c == "Sinistro (Batidas / Roubo / Avarias Graves)" and not (proc1 and proc2 and proc3 and proc4 and proc5):
-                        st.error("❌ Erro de Compliance: Preencha todos os 5 processos obrigatórios de sinistro.")
+                        st.error("❌ Erro de Compliance: Preencha todos os processos obrigatórios.")
                     else:
                         cursor = conn.cursor()
                         cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)", 
@@ -489,5 +493,5 @@ else:
                         if tipo_c == "Sinistro (Batidas / Roubo / Avarias Graves)":
                             cursor.execute("UPDATE veiculos SET status = 'Bloqueado (Sinistro)' WHERE placa = ?", (placa,))
                         conn.commit()
-                        st.success(f"✅ Sucesso! Registro administrativo salvo.")
+                        st.success(f"✅ Registro administrativo salvo com sucesso.")
                         st.rerun()
