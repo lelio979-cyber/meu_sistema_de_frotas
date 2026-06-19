@@ -444,3 +444,55 @@ elif menu == "🛠️ Ordens de Serviço":
         if not df_os.empty:
             st.dataframe(df_os, use_container_width=True)
         else: st.info("Nenhuma O.S. gerada.")
+# --- MÓDULO: AUDITORIA DE CHECKLISTS ---
+elif menu == "📋 Auditoria de Checklists":
+    st.title("📋 Painel de Auditoria de Checklists")
+    st.markdown("Consulte e filtre todos os históricos de vistorias realizados pelos operadores e gestores.")
+    
+    # Busca todos os checklists salvos no banco
+    df_checklists = pd.read_sql_query(
+        "SELECT id as ID, placa as Placa, tipo_movimentacao as Movimentação, km as [KM Registrado], combustivel as Combustível, avarias as [Avarias/Obs], pneus_estado as [Estado Pneus], operador as [Responsável/Operador], data as [Data/Hora] FROM checklists ORDER BY id DESC", conn
+    )
+    
+    if not df_checklists.empty:
+        # Filtros no topo para o Gestor refinar a busca
+        st.markdown("### 🔍 Filtros de Auditoria")
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            lista_placas = ["Todos"] + list(df_checklists["Placa"].unique())
+            filtro_placa = st.selectbox("Filtrar por Veículo/Placa", lista_placas)
+        with c2:
+            lista_operadores = ["Todos"] + list(df_checklists["Responsável/Operador"].unique())
+            filtro_operador = st.selectbox("Filtrar por Operador", lista_operadores)
+        with c3:
+            lista_mov = ["Todos"] + list(df_checklists["Movimentação"].unique())
+            filtro_mov = st.selectbox("Filtrar por Tipo de Movimentação", lista_mov)
+            
+        # Aplicando os filtros dinamicamente
+        df_filtrado = df_checklists.copy()
+        if filtro_placa != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Placa"] == filtro_placa]
+        if filtro_operador != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Responsável/Operador"] == filtro_operador]
+        if filtro_mov != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Movimentação"] == filtro_mov]
+            
+        st.markdown("---")
+        
+        # Exibição dos resultados filtrados
+        st.markdown(f"##### 📊 Registros Encontrados: {len(df_filtrado)}")
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        
+        # Recursos adicionais para análise visual do Gestor
+        st.markdown("### ⚠️ Vistorias com Alerta de Avaria ou Pneu")
+        df_alertas = df_filtrado[(df_filtrado["Estado Pneus"] == "Troca Necessária") | (df_filtrado["Avarias/Obs"].str.len() > 0)]
+        
+        if not df_alertas.empty:
+            st.warning(f"Foram detectados {len(df_alertas)} checklists que apontaram problemas mecânicos ou estéticos.")
+            st.dataframe(df_alertas[["Data/Hora", "Placa", "Movimentação", "Estado Pneus", "Avarias/Obs", "Responsável/Operador"]], use_container_width=True, hide_index=True)
+        else:
+            st.success("✅ Nenhum checklist na seleção atual possui alertas de pneus ou avarias graves.")
+            
+    else:
+        st.info("💡 Nenhum checklist de campo foi preenchido até o momento. Os dados aparecerão aqui assim que os operadores utilizarem o módulo '📝 Checklist de Campo'.")
