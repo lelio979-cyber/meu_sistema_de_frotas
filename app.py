@@ -191,7 +191,14 @@ if escolha == "📊 Dashboard & KPIs":
 
 elif escolha == "📋 Auditoria Geral de Operações":
     st.title("📋 Tabela Consolidada de Histórico e Status Geral")
-    tab_log1, tab_log2, tab_log3 = st.tabs(["Checklists Realizados", "Abastecimentos & Custos", "Ordens de Serviço"])
+    # Criando 5 abas para cobrir todo o histórico do sistema
+    tab_log1, tab_log2, tab_log3, tab_log4, tab_log5 = st.tabs([
+        "Checklists Realizados", 
+        "Abastecimentos & Custos", 
+        "Ordens de Serviço",
+        "Histórico de Veículos",
+        "Histórico de Motoristas"
+    ])
     
     with tab_log1:
         df_chk_log = pd.read_sql_query("SELECT data, placa, tipo_movimentacao, km, combustivel, operador, pneus_estado FROM checklists ORDER BY data DESC", conn)
@@ -223,6 +230,27 @@ elif escolha == "📋 Auditoria Geral de Operações":
         else:
             st.info("Nenhuma ordem de serviço aberta.")
 
+    with tab_log4:
+        st.subheader("Veículos Cadastrados no Sistema")
+        df_veic_log = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, tipo_frota, locadora_nome, data_locacao FROM veiculos", conn)
+        if not df_veic_log.empty:
+            f_placa_v = st.text_input("Filtrar por Placa do Veículo", key="f_veic_placa").upper().strip()
+            if f_placa_v:
+                df_veic_log = df_veic_log[df_veic_log['placa'].str.contains(f_placa_v)]
+            st.dataframe(df_veic_log, use_container_width=True)
+        else:
+            st.info("Nenhum veículo cadastrado na base de dados.")
+
+    with tab_log5:
+        st.subheader("Motoristas Cadastrados no Sistema")
+        df_mot_log = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento, termo_aceite FROM motoristas", conn)
+        if not df_mot_log.empty:
+            f_nome_m = st.text_input("Filtrar por Nome do Motorista", key="f_mot_nome").strip()
+            if f_nome_m:
+                df_mot_log = df_mot_log[df_mot_log['nome'].str.contains(f_nome_m, case=False)]
+            st.dataframe(df_mot_log, use_container_width=True)
+        else:
+            st.info("Nenhum motorista cadastrado na base de dados.")
 elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
     st.title("🚗 Central de Cadastros e Arquivos")
     tab_veic, tab_mot, tab_downloads = st.tabs(["Cadastrar Veículo & CRLV", "Cadastrar Motorista & CNH", "📥 Arquivo Digital (Downloads)"])
