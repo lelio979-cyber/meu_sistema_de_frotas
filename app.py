@@ -11,8 +11,8 @@ def ger_hash(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 def init_db():
-    # Atualizado para v9 para acomodar os novos campos de texto e arquivos
-    conn = sqlite3.connect('frotas_v9.db', check_same_thread=False)
+    # Atualizado para v10 para os novos campos robustos de checklist e fotos
+    conn = sqlite3.connect('frotas_v10.db', check_same_thread=False)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS usuarios "
               "(usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)")
@@ -29,7 +29,10 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS checklists "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, "
               "tipo_movimentacao TEXT, km INTEGER, combustivel TEXT, "
-              "avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)")
+              "avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT, "
+              "motorista TEXT, destino TEXT, finalidade TEXT, "
+              "limpeza_interna TEXT, limpeza_externa TEXT, "
+              "inspecao_detalhada TEXT, foto_avaria BLOB)")
     c.execute("CREATE TABLE IF NOT EXISTS financeiro "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, "
               "tipo_custo TEXT, valor REAL, data TEXT)")
@@ -456,28 +459,137 @@ elif menu == "📍 Atualizar KM":
             
     else:
         st.warning("⚠️ Nenhum veículo localizado na base de dados. Cadastre um veículo primeiro na aba 'Cadastros'.")
-# --- MÓDULO: CHECKLIST ---
+# --- MÓDULO: CHECKLIST DE CAMPO ---
 elif menu == "📝 Checklist de Campo":
-    st.title("📝 Checklist Operacional de Campo")
-    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-    if not df_l.empty:
-        with st.form("f_chk", clear_on_submit=True):
-            pl = st.selectbox("Veículo", df_l['placa'])
-            tp = st.selectbox("Movimentação", ["Entrada", "Saída"])
-            km = st.number_input("KM Atual", min_value=0)
-            tk = st.selectbox("Combustível", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
-            pn = st.radio("Pneus", ["Regular", "Troca Necessária"])
-            av = st.text_input("Avarias Visuais")
-            if st.form_submit_button("Submeter Checklist"):
-                ag = datetime.now().strftime("%Y-%m-%d %H:%M")
-                conn.cursor().execute(
-                    "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
-                    (pl, tp, km, tk, av, pn, st.session_state['u_log'], ag)
-                )
-                conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, pl))
-                conn.commit(); st.success("Checklist salvo!"); st.rerun()
-    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
-
+    st.title("📝 Vistoria e Checklist de Campo")
+    st.markdown("Formulário operacional de liberação e recebimento de veículos com inspeção e travas de segurança.")
+    
+    # Carrega dados para os seletores
+    df_veic = pd.read_sql_query("SELECT placa, km_atual, modelo FROM veiculos", conn)
+    df_mot = pd.read_sql_query("SELECT nome, cnh_vencimento FROM motoristas", conn)
+    
+    if df_veic.empty:
+        st.warning("⚠️ Nenhum veículo cadastrado. Cadastre um veículo antes de realizar vistorias.")
+    elif df_mot.empty:
+        st.warning("⚠️ Nenhum motorista cadastrado. Cadastre um condutor antes de realizar vistorias.")
+    else:
+        with st.form("f_checklist_avancado"):
+            st.markdown("##### 1. Identificação da Movimentação")
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                placa_sel = st.selectbox("Selecione o Veículo", df_veic['placa'])
+                # Extrai o KM atual para validação em tempo real
+                km_base = int(df_veic[df_veic['placa'] == placa_sel]['km_atual'].values[0])
+                modelo_sel = df_veic[df_veic['placa'] == placa_sel]['modelo'].values[0]
+            with c2:
+                mot_sel = st.selectbox("Selecione o Condutor / Motorista", df_mot['nome'])
+                venc_cnh_str = df_mot[df_mot['nome'] == mot_sel]['cnh_vencimento'].values[0]
+                venc_cnh = datetime.strptime(venc_cnh_str, "%Y-%m-%d").date()
+            with c3:
+                tipo_mov = st.selectbox("Tipo de Movimentação", ["Saída / Retirada", "Entrada / Devolução"])
+                
+            st.markdown(f"ℹ️ *O hodômetro atual do veículo `{placa_sel}` ({modelo_sel}) é de **{km_base:,} KM**.*".replace(",", "."))
+            
+            # Trava de CNH vencida visível em tempo real
+            hoje = datetime.now().date()
+            cnh_vencida = venc_cnh < hoje
+            if cnh_vencida:
+                st.error(f"🚨 BLOQUEIO DE SEGURANÇA: A CNH do motorista {mot_sel} venceu em {venc_cnh.strftime('%d/%m/%Y')}! Ele não pode conduzir.")
+            
+            st.markdown("---")
+            st.markdown("##### 2. Rota e Conservação")
+            c4, c5 = st.columns(2)
+            with c4:
+                destino = st.text_input("Destino / Itinerário Previsto")
+                limp_int = st.select_slider("Limpeza Interna (Nota)", options=["Péssima", "Suja", "Regular", "Limpa", "Impecável"], value="Limpa")
+            with c5:
+                finalidade = st.text_input("Finalidade da Viagem / Operação")
+                limp_ext = st.select_slider("Limpeza Externa (Nota)", options=["Péssima", "Suja", "Regular", "Limpa", "Impecável"], value="Limpa")
+                
+            st.markdown("---")
+            st.markdown("##### 3. Dados Mecânicos e Itens de Segurança (Inspeção 5S)")
+            c6, c7, c8 = st.columns(3)
+            with c6:
+                km_vistoria = st.number_input("Hodômetro na Vistoria (KM)", min_value=km_base, value=km_base, step=1)
+                pneus = st.selectbox("Estado dos Pneus", ["Regular", "Troca Necessária", "Alerta / Meia-Vida"])
+            with c7:
+                comb_nivel = st.selectbox("Nível do Combustível", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
+                # Lista de checagem detalhada
+                luzes = st.checkbox("Faróis e Lanternas Funcionando", value=True)
+                freios = st.checkbox("Sistema de Freios Operacional", value=True)
+            with c8:
+                estepe = st.checkbox("Estepe e Kit Macaco a Bordo", value=True)
+                fluidos = st.checkbox("Níveis de Óleo e Água Normais", value=True)
+                
+            st.markdown("---")
+            st.markdown("##### 4. Registro de Avarias e Assinatura")
+            avarias = st.text_area("Descreva qualquer avaria, arranhão ou observação identificada")
+            up_foto = st.file_uploader("📸 Anexar Foto de Evidência/Avaria (Opcional - JPG, PNG)", type=["jpg", "png"])
+            
+            termo_aceite = st.checkbox("✍️ Declaro que fiz a conferência física dos itens e as informações acima são verdadeiras.", value=False)
+            
+            if st.form_submit_button("💾 Finalizar e Transmitir Checklist"):
+                if cnh_vencida:
+                    st.error("❌ Transmissão Bloqueada! O motorista está com a CNH vencida. Escolha um condutor regularizado.")
+                elif km_vistoria < km_base:
+                    st.error(f"❌ Erro de digitação! O KM não pode ser menor do que o histórico do veículo ({km_base} KM).")
+                elif not termo_aceite:
+                    st.error("❌ Assinatura Obrigatória! Você precisa marcar o termo de responsabilidade no final do formulário.")
+                else:
+                    try:
+                        # Processa string com a lista de itens checados
+                        itens_ok = []
+                        if luzes: itens_ok.append("Luzes OK")
+                        if freios: itens_ok.append("Freios OK")
+                        if estepe: itens_ok.append("Estepe OK")
+                        if fluidos: itens_ok.append("Fluidos OK")
+                        inspecao_texto = ", ".join(itens_ok)
+                        
+                        foto_bytes = up_foto.read() if up_foto else None
+                        agora_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        # 1. Salva o Checklist Completo
+                        conn.cursor().execute(
+                            "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data, motorista, destino, finalidade, limpeza_interna, limpeza_externa, inspecao_detalhada, foto_avaria) "
+                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            (placa_sel, tipo_mov, km_vistoria, comb_nivel, avarias, pneus, st.session_state['u_log'], agora_str, mot_sel, destino, finalidade, limp_int, limp_ext, inspecao_texto, foto_bytes)
+                        )
+                        
+                        # 2. Atualiza o KM e Status do Veículo na Tabela Principal
+                        novo_status = "Em Viagem" if tipo_mov == "Saída / Retirada" else "Disponível"
+                        conn.cursor().execute(
+                            "UPDATE veiculos SET km_atual = ?, status = ? WHERE placa = ?", 
+                            (km_vistoria, novo_status, placa_sel)
+                        )
+                        
+                        # 3. GERAÇÃO AUTOMÁTICA DE ORDEM DE SERVIÇO CASO DETECTE FALHAS CRÍTICAS
+                        alertas_gerados = []
+                        if pneus == "Troca Necessária":
+                            conn.cursor().execute(
+                                "INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data) "
+                                "VALUES (?, 'Pneus', 'Substituição preventiva acionada via Checklist de Campo devido a desgaste crítico.', 0.0, 'Pendente', ?)",
+                                (placa_sel, agora_str)
+                            )
+                            alertas_gerados.append("Ordem de manutenção de pneus aberta automaticamente.")
+                            
+                        if not freios or not luzes:
+                            conn.cursor().execute(
+                                "INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data) "
+                                "VALUES (?, 'Corretiva', 'Reparo urgente acionado via Checklist. Falha mecânica em itens obrigatórios de rodagem (Luzes/Freios).', 0.0, 'Pendente', ?)",
+                                (placa_sel, agora_str)
+                            )
+                            alertas_gerados.append("Ordem corretiva eletro-mecânica aberta automaticamente.")
+                            
+                        conn.commit()
+                        
+                        st.success(f"🎉 Checklist do veículo {placa_sel} gravado e transmitido com sucesso!")
+                        if alertas_gerados:
+                            for alerta in alertas_gerados:
+                                st.warning(f"🛠️ Ação de Oficina: {alerta}")
+                                
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Erro operacional ao processar gravação: {e}")
 # --- MÓDULO: ABASTECIMENTO ---
 elif menu == "⛽ Abastecimento":
     st.title("⛽ Lançamento de Abastecimento Financeiro")
