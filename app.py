@@ -6,33 +6,33 @@ import hashlib
 import os
 import altair as alt
 
-# Configuração da Página com Design Fluido e Modo Escuro Nativo
+# Configuração da Página
 st.set_page_config(
-    page_title="FleetX - Sistema de Gestão Inteligente de Frotas", 
+    page_title="FleetX - Gestão Inteligente", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-# Dicionário de Multas Completo e Técnico
+# Dicionário de Multas Completo
 if "DICIONARIO_MULTAS" not in locals():
     DICIONARIO_MULTAS = {
         "7455-0": {
             "gravidade": "Média", 
             "pontos": 4, 
             "valor": 130.16, 
-            "desc": "Velocidade superior à máxima em até 20%"
+            "desc": "Até 20% acima do limite"
         },
         "7463-0": {
             "gravidade": "Grave", 
             "pontos": 5, 
             "valor": 195.23, 
-            "desc": "Velocidade superior à máxima entre 20% e 50%"
+            "desc": "De 20% a 50% acima do limite"
         },
         "5010-0": {
             "gravidade": "Gravíssima", 
             "pontos": 7, 
             "valor": 880.41, 
-            "desc": "Dirigir sem CNH ou com CNH vencida"
+            "desc": "Dirigir sem CNH ou vencida"
         }
     }
 
@@ -41,48 +41,107 @@ def gerar_hash(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def criar_tabelas(cursor):
-    cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
-        placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
-        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
-        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS veiculos (
+        placa TEXT PRIMARY KEY, 
+        modelo TEXT, 
+        km_atual INTEGER, 
+        status TEXT DEFAULT 'Disponível', 
+        km_proxima_revisao INTEGER, 
+        trecho TEXT DEFAULT 'Base Central', 
+        tipo_frota TEXT, 
+        documento TEXT, 
+        arquivo_crlv BLOB, 
+        locadora_nome TEXT, 
+        data_locacao TEXT, 
+        data_devolucao TEXT)
+    ''')
     
-    cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
-        combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS checklists (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        placa TEXT, 
+        tipo_movimentacao TEXT, 
+        km INTEGER, 
+        combustivel TEXT, 
+        avarias TEXT, 
+        pneus_estado TEXT, 
+        operador TEXT, 
+        data TEXT)
+    ''')
     
-    cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
-        custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT, 
-        aprovado_por TEXT, data_aprovacao TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS ordens_servico (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        placa TEXT, 
+        tipo TEXT, 
+        descricao TEXT, 
+        custo REAL, 
+        status TEXT DEFAULT 'Aguardando Aprovação', 
+        data TEXT, 
+        aprovado_por TEXT, 
+        data_aprovacao TEXT)
+    ''')
     
-    cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS financeiro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        placa TEXT, 
+        tipo_custo TEXT, 
+        valor REAL, 
+        data TEXT)
+    ''')
     
-    cursor.execute('''CREATE TABLE IF NOT EXISTS multas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
-        codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS multas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        placa TEXT, 
+        data TEXT, 
+        endereco TEXT, 
+        codigo TEXT, 
+        gravidade TEXT, 
+        pontos INTEGER, 
+        valor REAL, 
+        descricao TEXT)
+    ''')
 
-    cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
-        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT,
-        arquivo_cnh BLOB, arquivo_termo BLOB)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS motoristas (
+        nome TEXT PRIMARY KEY, 
+        cnh_numero TEXT, 
+        cnh_vencimento TEXT, 
+        termo_aceite TEXT,
+        arquivo_cnh BLOB, 
+        arquivo_termo BLOB)
+    ''')
         
-    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (
-        usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS usuarios (
+        usuario TEXT PRIMARY KEY, 
+        senha_hash TEXT, 
+        perfil TEXT)
+    ''')
 
 def conectar_db():
-    conn = sqlite3.connect('frotas_v7.db', check_same_thread=False)
+    conn = sqlite3.connect(
+        'frotas_v7.db', 
+        check_same_thread=False
+    )
     cursor = conn.cursor()
     criar_tabelas(cursor)
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", (gerar_hash("admin123"),))
+        cursor.execute(
+            "INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", 
+            (gerar_hash("admin123"),)
+        )
     conn.commit()
     return conn
 
 try:
     conn = conectar_db()
 except Exception as e:
-    st.error(f"Erro de infraestrutura de dados: {e}")
+    st.error(f"Erro DB: {e}")
     st.stop()
 
 # --- SESSÃO E LOGIN ---
@@ -92,11 +151,11 @@ if 'autenticado' not in st.session_state:
     st.session_state['perfil_logado'] = ""
 
 if not st.session_state['autenticado']:
-    st.title("🔑 FleetX - Governança Corporativa")
+    st.title("🔑 FleetX - Login")
     with st.form("form_login"):
-        input_usuario = st.text_input("ID do Usuário").strip().lower()
-        input_senha = st.text_input("Senha de Acesso", type="password")
-        if st.form_submit_button("Autenticar no Sistema", use_container_width=True):
+        input_usuario = st.text_input("ID").strip().lower()
+        input_senha = st.text_input("Senha", type="password")
+        if st.form_submit_button("Entrar", use_container_width=True):
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", 
@@ -109,129 +168,189 @@ if not st.session_state['autenticado']:
                 st.session_state['perfil_logado'] = resultado[0]
                 st.rerun()
             else:
-                st.error("Credenciais inválidas. Sistema bloqueado.")
+                st.error("Incorreto! admin / admin123")
     st.stop()
 
-# --- MENU LATERAL E ALERTAS DE COMPLIANCE ---
+# --- MENU LATERAL ---
 st.sidebar.title("FleetX Control")
-st.sidebar.markdown(f"👤 **Usuário:** `{st.session_state['usuario_logado']}`")
-st.sidebar.markdown(f"🛡️ **Perfil:** `{st.session_state['perfil_logado'].upper()}`")
+st.sidebar.markdown(f"👤 ` {st.session_state['usuario_logado']} `")
+st.sidebar.markdown(f"🛡️ ` {st.session_state['perfil_logado'].upper()} `")
 st.sidebar.markdown("---")
 
 if st.session_state['perfil_logado'] == 'Gestor':
     opcoes_menu = [
         "📊 Dashboard & KPIs", 
-        "📋 Auditoria Geral de Operações",
-        "🚗 Cadastros Gerais (Frota/Motoristas)", 
+        "📋 Auditoria Geral",
+        "🚗 Cadastros (Frota/Motoristas)", 
         "👥 Controle de Usuários",  
-        "📍 Atualização de KM Diária",
+        "📍 Atualização de KM",
         "📋 Checklist de Campo", 
         "⛽ Abastecimento", 
         "🛠️ OS & Aprovações", 
-        "⚠️ Multas Automatizadas", 
-        "📝 Gestão de Contratos & Sinistros"
+        "⚠️ Multas", 
+        "📝 Contratos & Sinistros"
     ]
 else:
     opcoes_menu = [
-        "📍 Atualização de KM Diária", 
+        "📍 Atualização de KM", 
         "📋 Checklist de Campo", 
         "⛽ Abastecimento",
-        "📋 Auditoria Geral de Operações"
+        "📋 Auditoria Geral"
     ]
     
-escolha = st.sidebar.radio("Navegação do Ecossistema:", opcoes_menu)
+escolha = st.sidebar.radio("Navegação:", opcoes_menu)
 
-if st.sidebar.button("🚪 Desconectar Sistema", type="primary", use_container_width=True):
+if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
     st.session_state['autenticado'] = False
     st.rerun()
 
-# Carga de dados reativa para os seletores das páginas
 try:
-    df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    df_veiculos_global = pd.read_sql_query(
+        "SELECT placa FROM veiculos", 
+        conn
+    )
 except Exception:
     df_veiculos_global = pd.DataFrame(columns=['placa'])
 
-# Monitor proativo de CNH no Menu Lateral
+# Verificação de CNH
 try:
-    df_cnh_check = pd.read_sql_query("SELECT nome, cnh_vencimento FROM motoristas", conn)
+    df_cnh_check = pd.read_sql_query(
+        "SELECT nome, cnh_vencimento FROM motoristas", 
+        conn
+    )
     if not df_cnh_check.empty:
         for idx, row in df_cnh_check.iterrows():
-            venc = datetime.strptime(row['cnh_vencimento'], "%Y-%m-%d").date()
+            venc = datetime.strptime(
+                row['cnh_vencimento'], 
+                "%Y-%m-%d"
+            ).date()
             dias = (venc - date.today()).days
             if dias < 0:
                 st.sidebar.error(f"🚨 CNH VENCIDA: {row['nome']}")
             elif dias <= 30:
-                st.sidebar.warning(f"⚠️ CNH a vencer ({dias}d): {row['nome']}")
+                st.sidebar.warning(f"⚠️ CNH expira em {dias}d: {row['nome']}")
 except Exception:
     pass
 
-# --- RENDERIZAÇÃO DAS PÁGINAS PROFISSIONAIS ---
+# --- PÁGINAS ---
 
 if escolha == "📊 Dashboard & KPIs":
-    st.title("📊 Painel Executivo & KPIs de Performance")
+    st.title("📊 Painel Executivo")
     
-    # Cartões de Métricas no Topo
     c1, c2, c3 = st.columns(3)
     try:
-        total_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
-        total_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
-        total_custo = conn.cursor().execute("SELECT sum(valor) FROM financeiro").fetchone()[0] or 0.0
-        c1.metric("Frota Total Cadastrada", f"{total_v} Veículos")
-        c2.metric("Motoristas Ativos", f"{total_m} Condutores")
-        c3.metric("Custo Operacional Acumulado", f"R$ {total_custo:,.2f}")
+        total_v = conn.cursor().execute(
+            "SELECT count(*) FROM veiculos"
+        ).fetchone()[0]
+        total_m = conn.cursor().execute(
+            "SELECT count(*) FROM motoristas"
+        ).fetchone()[0]
+        total_custo = conn.cursor().execute(
+            "SELECT sum(valor) FROM financeiro"
+        ).fetchone()[0] or 0.0
+        
+        c1.metric("Frota Ativa", f"{total_v} veic.")
+        c2.metric("Condutores", f"{total_m} motoristas")
+        c3.metric("Custo Total", f"R$ {total_custo:,.2f}")
     except Exception:
         pass
         
     st.markdown("---")
     col_g1, col_g2 = st.columns(2)
     with col_g1:
-        st.subheader("Disponibilidade e Status Operacional")
-        df_status = pd.read_sql_query("SELECT status, count(*) as total FROM veiculos GROUP BY status", conn)
+        st.subheader("Status Operacional")
+        df_status = pd.read_sql_query(
+            "SELECT status, count(*) as total FROM veiculos GROUP BY status", 
+            conn
+        )
         if not df_status.empty:
-            chart1 = alt.Chart(df_status).mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5).encode(
-                x=alt.X('status:N', title='Status'),
-                y=alt.Y('total:Q', title='Frota'),
-                color=alt.Color('status:N', scale=alt.Scale(scheme='darkmulti'))
+            chart1 = alt.Chart(df_status).mark_bar().encode(
+                x='status:N',
+                y='total:Q',
+                color='status:N'
             ).properties(height=300)
             st.altair_chart(chart1, use_container_width=True)
             
     with col_g2:
-        st.subheader("Análise de Desembolso de Combustível por Placa")
-        df_comb = pd.read_sql_query("SELECT placa, sum(valor) as total FROM financeiro WHERE tipo_custo='Combustível' GROUP BY placa", conn)
+        st.subheader("Custos de Combustível")
+        df_comb = pd.read_sql_query(
+            "SELECT placa, sum(valor) as total FROM financeiro WHERE tipo_custo='Combustível' GROUP BY placa", 
+            conn
+        )
         if not df_comb.empty:
-            chart2 = alt.Chart(df_comb).mark_bar(color="#FF4B4B").encode(
-                x=alt.X('placa:N', title='Veículo'),
-                y=alt.Y('total:Q', title='Total Gasto (R$)')
+            chart2 = alt.Chart(df_comb).mark_bar(color="red").encode(
+                x='placa:N',
+                y='total:Q'
             ).properties(height=300)
             st.altair_chart(chart2, use_container_width=True)
 
-elif escolha == "📋 Auditoria Geral de Operações":
-    st.title("📋 Central Consolidada de Auditoria e Histórico")
+elif escolha == "📋 Auditoria Geral":
+    st.title("📋 Central de Auditoria")
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Checklists Realizados", "Fluxo Financeiro & Custos", 
-        "Ordens de Serviço", "Histórico de Frota", "Fichas de Motoristas"
+        "Checklists", "Financeiro", "OS", "Frota", "Motoristas"
     ])
     
     with tab1:
-        df = pd.read_sql_query("SELECT data, placa, tipo_movimentacao, km, combustivel, operador, avarias FROM checklists ORDER BY data DESC", conn)
+        df = pd.read_sql_query(
+            "SELECT * FROM checklists ORDER BY data DESC", 
+            conn
+        )
         st.dataframe(df, use_container_width=True)
     with tab2:
-        df = pd.read_sql_query("SELECT data, placa, tipo_custo, valor FROM financeiro ORDER BY data DESC", conn)
+        df = pd.read_sql_query(
+            "SELECT * FROM financeiro ORDER BY data DESC", 
+            conn
+        )
         st.dataframe(df, use_container_width=True)
     with tab3:
-        df = pd.read_sql_query("SELECT id, data, placa, descricao, custo, status, aprovado_por FROM ordens_servico ORDER BY id DESC", conn)
+        df = pd.read_sql_query(
+            "SELECT * FROM ordens_servico ORDER BY id DESC", 
+            conn
+        )
         st.dataframe(df, use_container_width=True)
     with tab4:
-        df = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, tipo_frota, locadora_nome FROM veiculos", conn)
+        df = pd.read_sql_query(
+            "SELECT * FROM veiculos", 
+            conn
+        )
         st.dataframe(df, use_container_width=True)
     with tab5:
-        df = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento, termo_aceite FROM motoristas", conn)
+        df = pd.read_sql_query(
+            "SELECT * FROM motoristas", 
+            conn
+        )
         st.dataframe(df, use_container_width=True)
 
-elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
-    st.title("🚗 Central de Cadastros e Gestão Avançada")
-    tab_veic, tab_mot, tab_downloads = st.tabs(["Cadastrar Veículo & CRLV", "Cadastrar Motorista & CNH", "📥 Arquivo Digital"])
+elif escolha == "🚗 Cadastros (Frota/Motoristas)":
+    st.title("🚗 Central de Cadastros")
+    tab_veic, tab_mot, tab_downloads = st.tabs([
+        "Veículo & CRLV", 
+        "Motorista & CNH", 
+        "📥 Arquivos"
+    ])
     
     with tab_veic:
-        st.subheader("Entrada de Novo Ativo na Frota")
-        tipo_f = st.selectbox("Modalidade da
+        st.subheader("Novo Veículo")
+        tipo_f = st.selectbox(
+            "Modalidade", 
+            [
+                "Próprio", 
+                "Reserva", 
+                "Terceirizado", 
+                "Locadora"
+            ]
+        )
+        
+        locadora_nome = None
+        data_loc_str = None
+        if tipo_f == "Locadora":
+            c_l1, c_l2 = st.columns(2)
+            with c_l1: 
+                locadora_nome = st.text_input("Locadora")
+            with c_l2: 
+                data_loc_str = str(st.date_input("Vigência"))
+
+        with st.form("form_veic", clear_on_submit=True):
+            p = st.text_input("Placa").upper().strip()
+            m = st.text_input("Modelo")
+            ki = st.number_input("KM Inicial", min_value=0
