@@ -6,6 +6,7 @@ import hashlib
 import os
 import altair as alt
 
+# 1. Configuração de Página
 st.set_page_config(
     page_title="FleetX - Gestão de Frotas", 
     layout="wide", 
@@ -66,6 +67,7 @@ if 'autenticado' not in st.session_state:
     st.session_state['usuario_logado'] = ""
     st.session_state['perfil_logado'] = ""
 
+# 2. Tela de Autenticação
 if not st.session_state['autenticado']:
     st.title("🔑 FleetX - Login")
     with st.form("form_login"):
@@ -82,8 +84,11 @@ if not st.session_state['autenticado']:
                 st.session_state['perfil_logado'] = resultado[0]
                 st.rerun()
             else:
+                st.error("Incorreto! Padrão: admin / admin123")
+    st.stop()
 
-                st.sidebar.title("FleetX Control")
+# 3. Menu Lateral e Navegação
+st.sidebar.title("FleetX Control")
 st.sidebar.write(f"👤 {st.session_state['usuario_logado']}")
 st.sidebar.write(f"🛡️ {st.session_state['perfil_logado'].upper()}")
 
@@ -119,7 +124,8 @@ try:
 except Exception:
     df_veiculos_global = pd.DataFrame(columns=['placa'])
 
-    if escolha == "📊 Dashboard":
+# 4. Blocos de Conteúdo das Páginas
+if escolha == "📊 Dashboard":
     st.title("📊 Painel")
     col1, col2 = st.columns(2)
     with col1:
@@ -161,6 +167,7 @@ elif escolha == "🚗 Cadastros":
                 conn.cursor().execute("INSERT INTO veiculos (placa, modelo, km_atual) VALUES (?,?,?)", (p,m,k))
                 conn.commit()
                 st.success("Salvo!")
+                st.rerun()
     with m_tab:
         with st.form("f_m"):
             nome = st.text_input("Nome")
@@ -170,6 +177,7 @@ elif escolha == "🚗 Cadastros":
                 conn.cursor().execute("INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?,?,?)", (nome, cnh, venc))
                 conn.commit()
                 st.success("Salvo!")
+                st.rerun()
 
 elif escolha == "👥 Usuários":
     st.title("👥 Usuários")
@@ -192,6 +200,7 @@ elif escolha == "📍 Atualizar KM":
                 conn.cursor().execute("UPDATE veiculos SET km_atual=? WHERE placa=?", (km, pl))
                 conn.commit()
                 st.success("Atualizado!")
+                st.rerun()
 
 elif escolha == "📋 Checklist":
     st.title("📋 Checklist")
@@ -259,5 +268,3 @@ elif escolha == "📝 Contratos":
                 conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?,?,?,?)", (pl, ev, val, dt))
                 conn.commit()
                 st.success("Salvo!")
-                st.error("Incorreto! Padrão: admin / admin123")
-    st.stop()
