@@ -77,7 +77,6 @@ if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
 # --- MÓDULO: DASHBOARD ---
 if menu == "📊 Dashboard":
     st.title("📊 Painel Executivo de Frotas")
-    
     c1, c2, c3, c4 = st.columns(4)
     tot_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
     tot_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
@@ -87,28 +86,22 @@ if menu == "📊 Dashboard":
     c1.metric("Frota Cadastrada", f"{tot_v} veic.")
     c2.metric("Motoristas Ativos", f"{tot_m} cond.")
     c3.metric("Despesa Global", f"R$ {cst_tot:,.2f}")
-    c4.metric("O.S. Pendentes", f"{os_pnd} abrir", delta=f"{os_pnd} alertas" if os_pnd > 0 else "Em dia")
+    c4.metric("O.S. Pendentes", f"{os_pnd} abrir")
     
     st.markdown("---")
     col1, col2 = st.columns(2)
-    
     with col1:
         st.subheader("📈 Despesas por Categoria")
         df_cat = pd.read_sql_query("SELECT tipo_custo, sum(valor) as total FROM financeiro GROUP BY tipo_custo", conn)
         if not df_cat.empty:
-            chart = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(
-                theta='total:Q', color='tipo_custo:N'
-            ).properties(height=260)
+            chart = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(theta='total:Q', color='tipo_custo:N').properties(height=260)
             st.altair_chart(chart, use_container_width=True)
         else: st.info("Sem lançamentos financeiros ainda.")
-        
     with col2:
         st.subheader("🚗 Distribuição da Frota por Status")
         df_st = pd.read_sql_query("SELECT status, count(*) as qtd FROM veiculos GROUP BY status", conn)
         if not df_st.empty:
-            chart_bar = alt.Chart(df_st).mark_bar().encode(
-                x='status:N', y='qtd:Q', color='status:N'
-            ).properties(height=260)
+            chart_bar = alt.Chart(df_st).mark_bar().encode(x='status:N', y='qtd:Q', color='status:N').properties(height=260)
             st.altair_chart(chart_bar, use_container_width=True)
         else: st.info("Nenhum veículo mapeado.")
 
@@ -120,32 +113,32 @@ elif menu == "🚗 Cadastros":
         tf = st.selectbox("Modalidade", ["Próprio", "Reserva", "Terceirizado", "Locadora"])
         ln = st.text_input("Locadora") if tf == "Locadora" else None
         with st.form("f_veic", clear_on_submit=True):
-            p, m = st.text_input("Placa").upper().strip(), st.text_input("Modelo")
+            p = st.text_input("Placa").upper().strip()
+            m = st.text_input("Modelo")
             ki = st.number_input("KM Inicial", min_value=0)
             kr = st.number_input("Revisão KM", min_value=0)
-            tr, doc = st.text_input("Trecho"), st.text_area("Obs")
-            up = st.file_uploader("CRLV", type=["pdf", "png", "jpg"])
+            tr = st.text_input("Trecho")
+            doc = st.text_area("Obs")
             if st.form_submit_button("Salvar Veículo") and p and m:
                 try:
                     conn.cursor().execute(
-                        "INSERT INTO veiculos VALUES (?,?,?, 'Disponível', ?,?,?,?,?,?, NULL, NULL)", 
-                        (p, m, ki, kr, tr, tf, doc, up.read() if up else None, ln)
+                        "INSERT INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota, documento, locadora_nome) VALUES (?,?,?, 'Disponível', ?,?,?,?,?)", 
+                        (p, m, ki, kr, tr, tf, doc, ln)
                     )
                     conn.commit(); st.success("Veículo salvo!"); st.rerun()
                 except: st.error("Erro ou Placa Duplicada.")
     with tb2:
         with st.form("f_mot", clear_on_submit=True):
-            nome, cnh = st.text_input("Nome"), st.text_input("Nº CNH")
+            nome = st.text_input("Nome")
+            cnh = st.text_input("Nº CNH")
             venc = st.date_input("Vencimento")
-            u_cnh = st.file_uploader("CNH", type=["pdf", "png", "jpg"])
-            u_ter = st.file_uploader("Termo", type=["pdf", "png", "jpg"])
             if st.form_submit_button("Salvar Motorista") and nome and cnh:
                 try:
                     conn.cursor().execute(
-                        "INSERT INTO motoristas VALUES (?,?,?, 'Sim', ?,?)", 
-                        (nome, cnh, str(venc), u_cnh.read() if u_cnh else None, u_ter.read() if u_ter else None)
+                        "INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento, termo_aceite) VALUES (?,?,?, 'Sim')", 
+                        (nome, cnh, str(venc))
                     )
                     conn.commit(); st.success("Motorista cadastrado!"); st.rerun()
                 except: st.error("Erro ao cadastrar.")
 
-# --- MÓDULO: VISUALIZAR &
+# --- MÓDULO:
