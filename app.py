@@ -5,86 +5,98 @@ from datetime import datetime, date
 import hashlib
 import altair as alt
 
-# --- CONFIGURAÇÃO DA PÁGINA ---
+# --- CONFIGURAÇÃO ---
 st.set_page_config(
-    page_title="FleetX - Gestão Inteligente", 
+    page_title="FleetX", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-# --- DICIONÁRIO DE MULTAS ---
-DICIONARIO_MULTAS = {
-    "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Até 20% acima do limite"},
-    "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "De 20% a 50% acima do limite"},
-    "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Dirigir sem CNH ou vencida"}
+DB_MULTAS = {
+    "7455-0": {"grav": "Média", "pts": 4, "val": 130.16, "desc": "Até 20% acima"},
+    "7463-0": {"grav": "Grave", "pts": 5, "val": 195.23, "desc": "20% a 50% acima"},
+    "5010-0": {"grav": "Gravíssima", "pts": 7, "val": 880.41, "desc": "Sem CNH/Vencida"}
 }
 
-# --- INFRAESTRUTURA DE BANCO DE DADOS ---
-def gerar_hash(senha):
-    return hashlib.sha256(senha.encode()).hexdigest()
+def ger_hash(s):
+    return hashlib.sha256(s.encode()).hexdigest()
 
-def conectar_db():
+def init_db():
     conn = sqlite3.connect('frotas_v7.db', check_same_thread=False)
-    cursor = conn.cursor()
-    cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
+    c = conn.cursor()
+    c.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
-        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
-        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
+        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base', tipo_frota TEXT, 
+        documento TEXT, arquivo_crlv BLOB, locadora_nome TEXT, data_locacao TEXT, data_devolucao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS checklists (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
-        combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
+        combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS ordens_servico (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
-        custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT, aprovado_por TEXT, data_aprovacao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS multas (
+        custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT, aprovado_por TEXT, data_aprovacao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS financeiro (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS multas (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
-        codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
-        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT, arquivo_cnh BLOB, arquivo_termo BLOB)''')
-    cursor.execute('''CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)''')
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", (gerar_hash("admin123"),))
+        codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS motoristas (
+        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT, arquivo_cnh BLOB, arquivo_termo BLOB)""")
+    c.execute("""CREATE TABLE IF NOT EXISTS usuarios (usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)""")
+    c.execute("SELECT COUNT(*) FROM usuarios")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", (ger_hash("admin123"),))
     conn.commit()
     return conn
 
-conn = conectar_db()
+conn = init_db()
 
-# --- SESSÃO E LOGIN ---
-if 'autenticado' not in st.session_state:
-    st.session_state['autenticado'] = False
-    st.session_state['usuario_logado'] = ""
-    st.session_state['perfil_logado'] = ""
+# --- AUTENTICAÇÃO ---
+if 'auth' not in st.session_state:
+    st.session_state['auth'] = False
+    st.session_state['u_log'] = ""
+    st.session_state['p_log'] = ""
 
-if not st.session_state['autenticado']:
+if not st.session_state['auth']:
     st.title("🔑 FleetX - Login")
-    with st.form("form_login"):
-        u_in = st.text_input("ID").strip().lower()
-        s_in = st.text_input("Senha", type="password")
+    with st.form("f_login"):
+        u = st.text_input("ID").strip().lower()
+        s = st.text_input("Senha", type="password")
         if st.form_submit_button("Entrar", use_container_width=True):
-            cursor = conn.cursor()
-            cursor.execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (u_in, gerar_hash(s_in)))
-            res = cursor.fetchone()
+            res = conn.cursor().execute("SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", (u, ger_hash(s))).fetchone()
             if res:
-                st.session_state['autenticado'] = True
-                st.session_state['usuario_logado'] = u_in
-                st.session_state['perfil_logado'] = res[0]
+                st.session_state['auth'] = True
+                st.session_state['u_log'] = u
+                st.session_state['p_log'] = res[0]
                 st.rerun()
-            else:
-                st.error("Incorreto! Use admin / admin123")
+            else: st.error("Incorreto! admin / admin123")
     st.stop()
 
-# --- DADOS GLOBAIS REATIVOS ---
-try:
-    df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-except:
-    df_veiculos_global = pd.DataFrame(columns=['placa'])
-
-# --- SIDEBAR & CNH COMPLIANCE ---
+# --- SIDEBAR ---
 st.sidebar.title("FleetX Control")
-st.sidebar.markdown(f"👤 `{st.session_state['usuario_logado']}` | 🛡️ `{st.session_state['perfil_logado'].upper()}`")
+st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_state['p_log']}`")
 
 try:
-    df_cnh = pd.read_sql_query("SELECT nome, cnh_venc
+    dt_cnh = conn.cursor().execute("SELECT nome, cnh_vencimento FROM motoristas").fetchall()
+    for n, v in dt_cnh:
+        dias = (datetime.strptime(v, "%Y-%m-%d").date() - date.today()).days
+        if dias < 0: st.sidebar.error(f"🚨 CNH VENCIDA: {n}")
+        elif dias <= 30: st.sidebar.warning(f"⚠️ CNH {dias}d: {n}")
+except: pass
+
+menus = ["📊 Dashboard", "📋 Auditoria", "🚗 Cadastros", "👥 Usuários", "📍 Atualizar KM", "📋 Checklist", "⛽ Abastecer", "🛠️ O.S.", "⚠️ Multas", "📝 Contratos"] if st.session_state['p_log'] == 'Gestor' else ["📍 Atualizar KM", "📋 Checklist", "⛽ Abastecer", "📋 Auditoria"]
+esc = st.sidebar.radio("Navegação:", menus)
+
+if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
+    st.session_state['auth'] = False
+    st.rerun()
+
+try: df_glob = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+except: df_glob = pd.DataFrame(columns=['placa'])
+
+# --- MÓDULOS ---
+if esc == "📊 Dashboard":
+    st.title("📊 Painel Executivo")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Frota", f"{conn.cursor().execute('SELECT count(*) FROM veiculos').fetchone()[0]} veic.")
+    c2.metric("Condutores", f"{conn.cursor().execute('SELECT count(*) FROM motoristas').fetchone()[0]} mot.")
+    c3.metric("Custos", f"R$
