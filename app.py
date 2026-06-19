@@ -177,6 +177,14 @@ if escolha == "📊 Dashboard & KPIs":
         try:
             df_comb = pd.read_sql_query("SELECT placa, sum(valor) as total_gasto FROM financeiro WHERE tipo_custo='Combustível' GROUP BY placa", conn)
             if not df_comb.empty:
+                # CORREÇÃO AQUI: Parênteses devidamente fechados após o .encode()
                 graf_comb = alt.Chart(df_comb).mark_bar().encode(
                     x=alt.X('placa:N', title='Veículo / Placa'),
-                    y=alt
+                    y=alt.Y('total_gasto:Q', title='Total Gasto (R$)'),
+                    color=alt.value("#FF4B4B")
+                ).properties(height=300)
+                st.altair_chart(graf_comb, use_container_width=True)
+            else:
+                st.info("Nenhum lançamento de combustível registrado.")
+        except Exception as e:
+            st.error(f"Erro ao carregar custos: {e}")
