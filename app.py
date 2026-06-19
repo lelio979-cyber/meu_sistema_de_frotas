@@ -177,40 +177,102 @@ if menu == "📊 Dashboard":
         st.success("🎉 Excelente! Nenhum alerta operacional ativo ou pendência detectada na frota.")
 # --- MÓDULO: CADASTROS ---
 elif menu == "🚗 Cadastros":
-    st.title("🚗 Central de Cadastros")
-    tb1, tb2 = st.tabs(["Veículo", "Motorista"])
+    st.title("🚗 Central de Cadastros Avançada")
+    st.markdown("Insira os dados patrimoniais e operacionais da frota com upload de documentos obrigatórios.")
+    
+    tb1, tb2 = st.tabs(["📋 Cadastro de Veículo", "👤 Cadastro de Motorista"])
+    
     with tb1:
-        tf = st.selectbox("Modalidade", ["Próprio", "Reserva", "Terceirizado", "Locadora"])
-        ln = st.text_input("Locadora") if tf == "Locadora" else None
+        st.subheader("Dados do Veículo")
+        tf = st.selectbox("Modalidade da Frota", ["Próprio", "Reserva", "Terceirizado", "Locadora"])
+        ln = st.text_input("Nome da Locadora") if tf == "Locadora" else None
+        
         with st.form("f_veic", clear_on_submit=True):
-            p = st.text_input("Placa").upper().strip()
-            m = st.text_input("Modelo")
-            ki = st.number_input("KM Inicial", min_value=0)
-            kr = st.number_input("Revisão KM", min_value=0)
-            tr = st.text_input("Trecho")
-            doc = st.text_area("Obs")
-            if st.form_submit_button("Salvar Veículo") and p and m:
-                try:
-                    conn.cursor().execute(
-                        "INSERT INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota, documento, locadora_nome) VALUES (?,?,?, 'Disponível', ?,?,?,?,?)", 
-                        (p, m, ki, kr, tr, tf, doc, ln)
-                    )
-                    conn.commit(); st.success("Veículo salvo!"); st.rerun()
-                except: st.error("Erro ou Placa Duplicada.")
-    with tb2:
-        with st.form("f_mot", clear_on_submit=True):
-            nome = st.text_input("Nome")
-            cnh = st.text_input("Nº CNH")
-            venc = st.date_input("Vencimento")
-            if st.form_submit_button("Salvar Motorista") and nome and cnh:
-                try:
-                    conn.cursor().execute(
-                        "INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento, termo_aceite) VALUES (?,?,?, 'Sim')", 
-                        (nome, cnh, str(venc))
-                    )
-                    conn.commit(); st.success("Motorista cadastrado!"); st.rerun()
-                except: st.error("Erro ao cadastrar.")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                p = st.text_input("Placa (Ex: ABC1D23 / ABC1234)").upper().strip().replace("-", "")
+                m = st.text_input("Modelo / Marca")
+                ano = st.number_input("Ano Fabricação/Modelo", min_value=1980, max_value=2030, value=2025)
+            with col2:
+                ki = st.number_input("Odômetro Inicial (KM)", min_value=0, step=1)
+                kr = st.number_input("Próxima Revisão (KM)", min_value=0, step=1)
+                cor = st.text_input("Cor Predominante")
+            with col3:
+                comb = st.selectbox("Combustível Padrão", ["Flex", "Gasolina", "Etanol", "Diesel", "Elétrico"])
+                tr = st.text_input("Trecho / Operação Atribuída")
+                
+            col_doc1, col_doc2 = st.columns(2)
+            with col_doc1:
+                renavam = st.text_input("Número do RENAVAM")
+            with col_doc2:
+                chassi = st.text_input("Número do Chassi")
+                
+            doc = st.text_area("Observações Gerais Básicas")
+            up_crlv = st.file_uploader("Anexar Documento CRLV (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+            
+            if st.form_submit_button("💾 Salvar Veículo na Frota"):
+                if not p or len(p) < 7:
+                    st.error("❌ Digite uma placa válida com pelo menos 7 caracteres.")
+                elif not m:
+                    st.error("❌ O modelo do veículo é obrigatório.")
+                else:
+                    try:
+                        crlv_bytes = up_crlv.read() if up_crlv else None
+                        conn.cursor().execute(
+                            "INSERT INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota, documento, ano, combustivel, cor, renavam, chassi, arquivo_crlv, locadora_nome) "
+                            "VALUES (?,?,?, 'Disponível', ?,?,?,?,?,?,?,?,?,?,?)", 
+                            (p, m, ki, kr, tr, tf, doc, ano, comb, cor, renavam, chassi, crlv_bytes, ln)
+                        )
+                        conn.commit()
+                        st.success(f"🚗 Veículo de Placa {p} cadastrado com sucesso!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("❌ Erro: Já existe um veículo cadastrado com esta mesma placa.")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar no banco de dados: {e}")
 
+    with tb2:
+        st.subheader("Dados do Motorista / Condutor")
+        with st.form("f_mot", clear_on_submit=True):
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                nome = st.text_input("Nome Completo")
+                cpf = st.text_input("CPF (Apenas números)")
+                tel = st.text_input("Telefone de Contato (Com DDD)")
+            with col_m2:
+                cnh = st.text_input("Número de Registro CNH")
+                cat_cnh = st.selectbox("Categoria da CNH", ["B", "A", "AB", "C", "D", "E"])
+                venc = st.date_input("Data de Vencimento da CNH")
+            
+            st.markdown("---")
+            st.markdown("##### 📁 Arquivos e Termos de Responsabilidade")
+            up_cnh = st.file_uploader("Anexar CNH Digitalizada (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+            up_termo = st.file_uploader("Anexar Termo de Uso de Veículo Assinado (PDF, PNG, JPG)", type=["pdf", "png", "jpg"])
+            
+            if st.form_submit_button("💾 Salvar Cadastro de Motorista"):
+                hoje = datetime.now().date()
+                if not nome:
+                    st.error("❌ O nome completo é obrigatório.")
+                elif not cnh:
+                    st.error("❌ O número da CNH é obrigatório.")
+                elif venc < hoje:
+                    st.error(f"❌ Bloqueado! A CNH informada está vencida desde {venc.strftime('%d/%m/%Y')}.")
+                else:
+                    try:
+                        cnh_bytes = up_cnh.read() if up_cnh else None
+                        termo_bytes = up_termo.read() if up_termo else None
+                        conn.cursor().execute(
+                            "INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento, termo_aceite, cpf, telefone, categoria_cnh, arquivo_cnh, arquivo_termo) "
+                            "VALUES (?,?,?, 'Sim', ?,?,?,?,?)", 
+                            (nome, cnh, str(venc), cpf, tel, cat_cnh, cnh_bytes, termo_bytes)
+                        )
+                        conn.commit()
+                        st.success(f"👤 Motorista {nome} registrado com sucesso!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error("❌ Erro: Já existe um motorista cadastrado com este mesmo nome ou CNH.")
+                    except Exception as e:
+                        st.error(f"❌ Erro ao salvar condutor: {e}")
 # --- MÓDULO: VISUALIZAR & EDITAR ---
 elif menu == "📋 Visualizar & Editar":
     st.title("📋 Central de Dados Dinâmica")
