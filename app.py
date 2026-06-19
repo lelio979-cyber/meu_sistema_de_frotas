@@ -62,6 +62,77 @@ except Exception as e:
     st.error(f"Erro DB: {e}")
     st.stop()
 
+# 1. COLE ESTA FUNÇÃO EM QUALQUER LUGAR DO SEU ARQUIVO (Pode ser logo antes dos ifs de navegação)
+def render_dashboard():
+    st.title("📊 Painel Executivo de Frotas")
+    
+    # KPIs Principais
+    c1, c2, c3, c4 = st.columns(4)
+    tot_v = conn.cursor().execute("SELECT count(*) FROM veiculos").fetchone()[0]
+    tot_m = conn.cursor().execute("SELECT count(*) FROM motoristas").fetchone()[0]
+    cst_tot = conn.cursor().execute("SELECT sum(valor) FROM financeiro").fetchone()[0] or 0.0
+    os_pnd = conn.cursor().execute("SELECT count(*) FROM ordens_servico WHERE status='Aguardando Aprovação'").fetchone()[0]
+    
+    c1.metric("Frota Cadastrada", f"{tot_v} veic.")
+    c2.metric("Motoristas Ativos", f"{tot_m} cond.")
+    c3.metric("Despesa Global", f"R$ {cst_tot:,.2f}")
+    c4.metric("O.S. Pendentes", f"{os_pnd} apr.", delta=f"{os_pnd} urgentes" if os_pnd > 0 else "Tudo em dia")
+    
+    st.markdown("---")
+    
+    # Gráficos
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📈 Custos por Categoria")
+        df_cat = pd.read_sql_query("SELECT tipo_custo, sum(valor) as total FROM financeiro GROUP BY tipo_custo", conn)
+        if not df_cat.empty:
+            chart_cat = alt.Chart(df_cat).mark_arc(innerRadius=50).encode(
+                theta=alt.Theta(field="total", type="quantitative"),
+                color=alt.Color(field="tipo_custo", type="nominal", title="Categoria"),
+                tooltip=["tipo_custo", "total"]
+            ).properties(height=280)
+            st.altair_chart(chart_cat, use_container_width=True)
+        else:
+            st.info("Sem dados financeiros registrados.")
+            
+    with col2:
+        st.subheader("🚗 Status e Alocação da Frota")
+        df_status = pd.read_sql_query("SELECT status, count(*) as total FROM veiculos GROUP BY status", conn)
+        if not df_status.empty:
+            chart_status = alt.Chart(df_status).mark_bar().encode(
+                x=alt.X('status:N', title="Status"),
+                y=alt.Y('total:Q', title="Quantidade"),
+                color='status:N'
+            ).properties(height=280)
+            st.altair_chart(chart_status, use_container_width=True)
+            
+    st.markdown("---")
+    
+    # Tabelas Resumo
+    col_tab1, col_tab2 = st.columns(2)
+    with col_tab1:
+        st.subheader("🚨 Últimas Multas Registradas")
+        df_ult_multas = pd.read_sql_query("SELECT placa, data, gravidade, valor FROM multas ORDER BY data DESC LIMIT 4", conn)
+        if not df_ult_multas.empty:
+            st.dataframe(df_ult_multas, use_container_width=True, hide_index=True)
+        else:
+            st.success("Nenhuma multa recente na base.")
+            
+    with col_tab2:
+        st.subheader("💡 Top 4 Veículos Mais Caros")
+        df_top_custos = pd.read_sql_query("SELECT placa, sum(valor) as total_gasto FROM financeiro GROUP BY placa ORDER BY total_gasto DESC LIMIT 4", conn)
+        if not df_top_custos.empty:
+            st.dataframe(df_top_custos, use_container_width=True, hide_index=True)
+        else:
+            st.info("Sem lançamentos de despesas para o ranking.")
+
+
+# 2. NO SEU MAPEAMENTO DE NAVEGAÇÃO (Lá no final do arquivo), DEIXE O IF ASSIM:
+if esc == "📊 Dashboard": 
+    render_dashboard()
+elif esc == "📋 Auditoria": 
+    # O resto do seu código de auditoria continua aqui...
+
 if 'autenticado' not in st.session_state:
     st.session_state['autenticado'] = False
     st.session_state['usuario_logado'] = ""
