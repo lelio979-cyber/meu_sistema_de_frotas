@@ -74,10 +74,11 @@ if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
     st.session_state['auth'] = False
     st.rerun()
 
+# Força a leitura atualizada dos veículos para os menus de seleção
 try: df_glob = pd.read_sql_query("SELECT placa FROM veiculos", conn)
 except: df_glob = pd.DataFrame(columns=['placa'])
 
-# --- NOVO DASHBOARD EXECUTIVO ---
+# --- MÓDULO: DASHBOARD ---
 if menu == "📊 Dashboard":
     st.title("📊 Painel Executivo de Frotas")
     
@@ -104,3 +105,71 @@ if menu == "📊 Dashboard":
             ).properties(height=260)
             st.altair_chart(chart, use_container_width=True)
         else: st.info("Sem lançamentos financeiros ainda.")
+        
+    with col2:
+        st.subheader("🚗 Distribuição da Frota por Status")
+        df_st = pd.read_sql_query("SELECT status, count(*) as qtd FROM veiculos GROUP BY status", conn)
+        if not df_st.empty:
+            chart_bar = alt.Chart(df_st).mark_bar().encode(
+                x='status:N', y='qtd:Q', color='status:N'
+            ).properties(height=260)
+            st.altair_chart(chart_bar, use_container_width=True)
+        else: st.info("Nenhum veículo mapeado.")
+
+# --- MÓDULO: CADASTROS ---
+elif menu == "🚗 Cadastros":
+    st.title("🚗 Central de Cadastros")
+    tb1, tb2 = st.tabs(["Veículo", "Motorista"])
+    with tb1:
+        tf = st.selectbox("Modalidade", ["Próprio", "Reserva", "Terceirizado", "Locadora"])
+        ln = st.text_input("Locadora") if tf == "Locadora" else None
+        with st.form("f_veic", clear_on_submit=True):
+            p, m = st.text_input("Placa").upper().strip(), st.text_input("Modelo")
+            ki = st.number_input("KM Inicial", min_value=0)
+            kr = st.number_input("Revisão KM", min_value=0)
+            tr, doc = st.text_input("Trecho"), st.text_area("Obs")
+            up = st.file_uploader("CRLV", type=["pdf", "png", "jpg"])
+            if st.form_submit_button("Salvar Veículo") and p and m:
+                try:
+                    conn.cursor().execute(
+                        "INSERT INTO veiculos VALUES (?,?,?, 'Disponível', ?,?,?,?,?,?, NULL, NULL)", 
+                        (p, m, ki, kr, tr, tf, doc, up.read() if up else None, ln)
+                    )
+                    conn.commit(); st.success("Veículo salvo!"); st.rerun()
+                except: st.error("Erro ou Placa Duplicada.")
+    with tb2:
+        with st.form("f_mot", clear_on_submit=True):
+            nome, cnh = st.text_input("Nome"), st.text_input("Nº CNH")
+            venc = st.date_input("Vencimento")
+            u_cnh = st.file_uploader("CNH", type=["pdf", "png", "jpg"])
+            u_ter = st.file_uploader("Termo", type=["pdf", "png", "jpg"])
+            if st.form_submit_button("Salvar Motorista") and nome and cnh:
+                try:
+                    conn.cursor().execute(
+                        "INSERT INTO motoristas VALUES (?,?,?, 'Sim', ?,?)", 
+                        (nome, cnh, str(venc), u_cnh.read() if u_cnh else None, u_ter.read() if u_ter else None)
+                    )
+                    conn.commit(); st.success("Motorista cadastrado!"); st.rerun()
+                except: st.error("Erro ao cadastrar.")
+
+# --- MÓDULO: VISUALIZAR & EDITAR ---
+elif menu == "📋 Visualizar & Editar":
+    st.title("📋 Central de Dados Dinâmica")
+    t_v, t_m = st.tabs(["Frota", "Motoristas"])
+    
+    with t_v:
+        df_v = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota FROM veiculos", conn)
+        if not df_v.empty:
+            edit_v = st.data_editor(df_v, num_rows="dynamic", use_container_width=True, key="ed_vc")
+            if st.button("💾 Salvar Alterações da Frota"):
+                conn.cursor().execute("DELETE FROM veiculos")
+                for _, r in edit_v.iterrows():
+                    conn.cursor().execute(
+                        "INSERT OR REPLACE INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)", (r['placa'], r['modelo'], r['km_atual'], r['status'], r['km_proxima_revisao'], r['trecho'], r['tipo_frota'])
+                    )
+                conn.commit(); st.success("Frota Atualizada!"); st.rerun()
+        else: st.info("Nenhum veículo cadastrado na base de dados.")
+            
+    with t_m:
+        df_m = pd.read_sql
