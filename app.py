@@ -267,4 +267,26 @@ elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
         st.subheader("Inserir Novo Motorista")
         with st.form("form_cadastro_motorista", clear_on_submit=True):
             nome_m = st.text_input("Nome Completo")
-            cnh_m = st.text_
+            cnh_m = st.text_input("Número da CNH")
+            venc_cnh = st.date_input("Vencimento da CNH")
+            upload_cnh = st.file_uploader("Upload da CNH Digital", type=["pdf", "png", "jpg"])
+            upload_termo = st.file_uploader("Upload do Termo de Utilização", type=["pdf", "png", "jpg"])
+            aceitou_termo = st.checkbox("Confirmo conformidade")
+            
+            if st.form_submit_button("Salvar Motorista"):
+                if nome_m and cnh_m and aceitou_termo:
+                    conteudo_cnh = upload_cnh.read() if upload_cnh is not None else None
+                    conteudo_termo = upload_termo.read() if upload_termo is not None else None
+                    cursor = conn.cursor()
+                    cursor.execute("INSERT INTO motoristas VALUES (?, ?, ?, 'Sim', ?, ?)", 
+                                   (nome_m, cnh_m, str(venc_cnh), conteudo_cnh, conteudo_termo))
+                    conn.commit()
+                    st.success(f"👤 Condutor {nome_m} salvo!")
+                st.rerun()
+
+    with tab_downloads:
+        st.subheader("Downloads")
+        cursor = conn.cursor()
+        cursor.execute("SELECT placa, arquivo_crlv FROM veiculos WHERE arquivo_crlv IS NOT NULL")
+        for p, blob in cursor.fetchall():
+            st.download_button(label=f"📥 Baixar CRLV - {p}", data=blob, file_name=f"CRLV_{p}.pdf")
