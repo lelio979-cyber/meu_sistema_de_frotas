@@ -14,34 +14,40 @@ def conectar_db():
     conn = sqlite3.connect('frotas_codespace.db')
     cursor = conn.cursor()
     
+    # Tabela de Veículos (Atualizada com Documento)
     cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
-        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT)''')
+        km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, documento TEXT)''')
     
+    # Tabela de Checklists
     cursor.execute('''CREATE TABLE IF NOT EXISTS checklists (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_movimentacao TEXT, km INTEGER, 
         combustivel TEXT, avarias TEXT, pneus_estado TEXT, operador TEXT, data TEXT)''')
     
+    # Tabela de Ordens de Serviço
     cursor.execute('''CREATE TABLE IF NOT EXISTS ordens_servico (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, descricao TEXT, 
         custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', data TEXT)''')
     
+    # Tabela Financeira
     cursor.execute('''CREATE TABLE IF NOT EXISTS financeiro (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo_custo TEXT, valor REAL, data TEXT)''')
     
+    # Tabela de Multas
     cursor.execute('''CREATE TABLE IF NOT EXISTS multas (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
         codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)''')
 
+    # Tabela de Motoristas (Atualizada com Termo e CNH)
     cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
-        nome TEXT PRIMARY KEY, cnh_vencimento TEXT)''')
+        nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT)''')
     
+    # Inserções Iniciais para Testes se vazio
     cursor.execute("SELECT COUNT(*) FROM veiculos")
     if cursor.fetchone()[0] == 0:
-        cursor.execute("INSERT INTO veiculos VALUES ('BRA2E19', 'Volvo FH 540', 92000, 'Disponível', 100000, 'Rota SP-RJ', 'Próprio')")
-        cursor.execute("INSERT INTO veiculos VALUES ('ABC1234', 'Scania R450', 149500, 'Disponível', 150000, 'Rota SP-BH', 'Reserva')")
-        cursor.execute("INSERT INTO motoristas VALUES ('João Silva', '2026-08-10')")
-        cursor.execute("INSERT INTO motoristas VALUES ('Carlos Souza', '2026-11-20')")
+        cursor.execute("INSERT INTO veiculos VALUES ('BRA2E19', 'Volvo FH 540', 92000, 'Disponível', 100000, 'Rota SP-RJ', 'Próprio', 'RENAVAM 0123456789')")
+        cursor.execute("INSERT INTO veiculos VALUES ('ABC1234', 'Scania R450', 149500, 'Disponível', 150000, 'Rota SP-BH', 'Reserva', 'RENAVAM 9876543210')")
+        cursor.execute("INSERT INTO motoristas VALUES ('João Silva', '12345678900', '2026-08-10', 'Aceito')")
     conn.commit()
     return conn
 
@@ -79,7 +85,15 @@ else:
     
     opcoes_menu = ["📋 Checklist de Campo", "⛽ Abastecimento"]
     if st.session_state['perfil'] == 'gestor':
-        opcoes_menu = ["📊 Dashboard & KPIs", "📋 Checklist de Campo", "⛽ Abastecimento", "🛠️ OS & Aprovações", "⚠️ Multas Automatizadas", "📝 Gestão de Contratos & Sinistros"]
+        opcoes_menu = [
+            "📊 Dashboard & KPIs", 
+            "🚗 Cadastros Gerais (Frota/Motoristas)", 
+            "📋 Checklist de Campo", 
+            "⛽ Abastecimento", 
+            "🛠️ OS & Aprovações", 
+            "⚠️ Multas Automatizadas", 
+            "📝 Gestão de Contratos & Sinistros"
+        ]
         
     escolha = st.sidebar.radio("Navegação:", opcoes_menu)
     
@@ -89,9 +103,71 @@ else:
         st.rerun()
 
     # ==========================================
-    # 3. MÓDULO 1: CHECKLIST DE CAMPO
+    # 3. MÓDULO NOVO: CADASTROS GERAIS (GESTOR)
     # ==========================================
-    if escolha == "📋 Checklist de Campo":
+    if escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
+        st.title("🚗 Central de Cadastros Corporativos")
+        
+        tab_veic, tab_mot = st.tabs(["Cadastrar Veículo & Documento", "Cadastrar Motorista & CNH"])
+        
+        with tab_veic:
+            st.subheader("Inserir Novo Veículo na Frota")
+            with st.form("form_cadastro_veiculo", clear_on_submit=True):
+                nova_placa = st.text_input("Placa do Veículo", placeholder="Ex: BRA2E19").upper()
+                novo_modelo = st.text_input("Modelo / Marca", placeholder="Ex: Volvo FH 540")
+                km_inicial = st.number_input("Quilometragem Inicial", min_value=0, step=1000)
+                km_revisao = st.number_input("KM da Próxima Revisão Preditiva", min_value=0, step=1000)
+                trecho_inicial = st.text_input("Trecho Inicial de Operação", placeholder="Ex: Rota SP-RJ")
+                tipo_f = st.selectbox("Tipo de Frota", ["Próprio", "Reserva", "Agregado / Terceirizado"])
+                
+                # Campo solicitado para o Documento do veículo
+                doc_veiculo = st.text_area("Informações do Documento do Veículo (RENAVAM / Chassi / Licenciamento)")
+                
+                cadastrar_v = st.form_submit_button("Salvar Veículo na Base")
+                if cadastrar_v:
+                    if nova_placa and novo_modelo:
+                        cursor = conn.cursor()
+                        try:
+                            cursor.execute("INSERT INTO veiculos VALUES (?, ?, ?, 'Disponível', ?, ?, ?, ?)",
+                                           (nova_placa, novo_modelo, km_inicial, km_revisao, trecho_inicial, tipo_f, doc_veiculo))
+                            conn.commit()
+                            st.success(f"✅ Veículo {nova_placa} cadastrado e integrado com sucesso!")
+                        except sqlite3.IntegrityError:
+                            st.error("❌ Essa placa já está cadastrada no sistema.")
+                    else:
+                        st.warning("Preencha a Placa e o Modelo para continuar.")
+                        
+        with tab_mot:
+            st.subheader("Inserir Novo Motorista no Prontuário")
+            with st.form("form_cadastro_motorista", clear_on_submit=True):
+                nome_m = st.text_input("Nome Completo do Condutor")
+                # Campos solicitados para CNH e vencimento
+                cnh_m = st.text_input("Número da CNH")
+                venc_cnh = st.date_input("Data de Vencimento da CNH")
+                
+                # Campo solicitado para o Termo de Utilização
+                st.write("---")
+                st.caption("📜 Termo de Responsabilidade e Utilização de Veículo Corporativo")
+                st.info("O condutor abaixo declara estar ciente das regras de trânsito, zelo pelo patrimônio da empresa, conformidade com os apontamentos de checklist de campo e aplicação de penalidades em caso de sinistros culposos.")
+                aceitou_termo = st.checkbox("O motorista leu e concorda expressamente com o Termo de Utilização acima")
+                
+                cadastrar_m = st.form_submit_button("Salvar Motorista na Base")
+                if cadastrar_m:
+                    if nome_m and cnh_m:
+                        if aceitou_termo:
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO motoristas VALUES (?, ?, ?, 'Sim')", (nome_m, cnh_m, str(venc_cnh)))
+                            conn.commit()
+                            st.success(f"👤 Condutor {nome_m} cadastrado com CNH e Termo de Utilização validados!")
+                        else:
+                            st.error("❌ Não é possível cadastrar sem dar o aceite no Termo de Utilização.")
+                    else:
+                        st.warning("Preencha o Nome e a CNH do motorista.")
+
+    # ==========================================
+    # 4. MÓDULO: CHECKLIST DE CAMPO
+    # ==========================================
+    elif escolha == "📋 Checklist de Campo":
         st.title("📋 Checklist Prático de Entrada e Saída")
         st.caption("Foco operacional: Interface rápida adaptada para celulares e tablets de campo.")
         
@@ -119,7 +195,7 @@ else:
                 st.success(f"✅ Checklist de {tipo} enviado! Dados consolidados na base do Gestor.")
 
     # ==========================================
-    # 4. MÓDULO 2: ABASTECIMENTO
+    # 5. MÓDULO: ABASTECIMENTO
     # ==========================================
     elif escolha == "⛽ Abastecimento":
         st.title("⛽ Lançamento de Abastecimento / Cartão Combustível")
@@ -140,7 +216,7 @@ else:
                 st.success("⛽ Gasto computado com sucesso no fluxo financeiro corporativo!")
 
     # ==========================================
-    # 5. MÓDULO 3: OS & APROVAÇÕES
+    # 6. MÓDULO: OS & APROVAÇÕES
     # ==========================================
     elif escolha == "🛠️ OS & Aprovações":
         st.title("🛠️ Fluxo Central de Ordens de Serviço e Manutenções")
@@ -194,7 +270,7 @@ else:
                             st.rerun()
 
     # ==========================================
-    # 6. MÓDULO 4: MULTAS AUTOMATIZADAS
+    # 7. MÓDULO: MULTAS AUTOMATIZADAS
     # ==========================================
     elif escolha == "⚠️ Multas Automatizadas":
         st.title("⚠️ Lançamento Inteligente de Infrações")
@@ -220,14 +296,14 @@ else:
                     st.info(f"**Descrição:** {info['desc']}")
                     
                     cursor = conn.cursor()
-                    cursor.execute("INSERT INTO multas (placa, data, address, code, severity, points, value, descr) VALUES (?,?,?,?,?,?,?,?)",
+                    cursor.execute("INSERT INTO multas (placa, data, endereco, codigo, gravidade, pontos, valor, descricao) VALUES (?,?,?,?,?,?,?,?)",
                                    (placa, data_m, endereco, codigo, info['gravidade'], info['pontos'], info['valor'], info['desc']))
                     cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Multa', ?, ?)", (placa, info['valor'], data_m))
                     conn.commit()
                     st.success("🚨 Infração vinculada e provisionada no custo operacional!")
 
     # ==========================================
-    # 7. MÓDULO 5: CONTRATOS, PEDÁGIOS E SINISTROS
+    # 8. MÓDULO: CONTRATOS, PEDÁGIOS E SINISTROS
     # ==========================================
     elif escolha == "📝 Gestão de Contratos & Sinistros":
         st.title("📝 Lançamentos Administrativos Gerais")
@@ -248,7 +324,7 @@ else:
                 st.success(f"Sucesso! Custo de {tipo_c} integrado com sucesso.")
 
     # ==========================================
-    # 8. MÓDULO 6: DASHBOARD, KPIS E ALERTAS
+    # 9. MÓDULO: DASHBOARD, KPIS E ALERTAS
     # ==========================================
     elif escolha == "📊 Dashboard & KPIs":
         st.title("📊 Painel Executivo e Tomada de Decisão")
