@@ -12,11 +12,12 @@ st.set_page_config(page_title="FleetX - Gestão de Frotas", layout="wide", initi
 # ==========================================
 # CONSTANTES E DICIONÁRIOS GLOBAL
 # ==========================================
-DICIONARIO_MULTAS = {
-    "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
-    "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "Velocidade superior à máxima entre 20% e 50%"},
-    "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Dirigir sem CNH ou com CNH vencida"}
-}
+if "DICIONARIO_MULTAS" not in locals():
+    DICIONARIO_MULTAS = {
+        "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
+        "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "Velocidade superior à máxima entre 20% e 50%"},
+        "5010-0": {"gravidade": "Gravíssima", "pontos": 7, "valor": 880.41, "desc": "Dirigir sem CNH ou com CNH vencida"}
+    }
 
 # ==========================================
 # 1. BANCO DE DADOS E INFRAESTRUTURA
@@ -104,7 +105,6 @@ st.sidebar.title("FleetX Control")
 st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
 st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
 
-# CORREÇÃO DA INDENTAÇÃO CRÍTICA AQUI:
 if st.session_state['perfil_logado'] == 'Gestor':
     opcoes_menu = [
         "📊 Dashboard & KPIs", 
@@ -132,6 +132,7 @@ if st.sidebar.button("🚪 Desconectar / Sair", type="primary"):
     st.session_state['autenticado'] = False
     st.rerun()
 
+# Garantindo a carga global de veículos para evitar que as páginas quebrem
 try:
     df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
 except Exception:
@@ -147,7 +148,7 @@ try:
             if dias_restantes < 0:
                 st.sidebar.error(f"🚨 CNH de {row['nome']} VENCIDA!")
             elif dias_restantes <= 30:
-                st.sidebar.warning(f"⚠️ CNH de {row['nome']} vence em {dias_restantes} dias.")
+                st.sidebar.warning(f"⚠️ CNH de {row['nome']} vence in {dias_restantes} dias.")
 except Exception:
     pass
 
@@ -191,13 +192,8 @@ if escolha == "📊 Dashboard & KPIs":
 
 elif escolha == "📋 Auditoria Geral de Operações":
     st.title("📋 Tabela Consolidada de Histórico e Status Geral")
-    # Criando 5 abas para cobrir todo o histórico do sistema
     tab_log1, tab_log2, tab_log3, tab_log4, tab_log5 = st.tabs([
-        "Checklists Realizados", 
-        "Abastecimentos & Custos", 
-        "Ordens de Serviço",
-        "Histórico de Veículos",
-        "Histórico de Motoristas"
+        "Checklists Realizados", "Abastecimentos & Custos", "Ordens de Serviço", "Histórico de Veículos", "Histórico de Motoristas"
     ])
     
     with tab_log1:
@@ -231,26 +227,19 @@ elif escolha == "📋 Auditoria Geral de Operações":
             st.info("Nenhuma ordem de serviço aberta.")
 
     with tab_log4:
-        st.subheader("Veículos Cadastrados no Sistema")
-        df_veic_log = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, tipo_frota, locadora_nome, data_locacao FROM veiculos", conn)
+        df_veic_log = pd.read_sql_query("SELECT placa, modelo, km_atual, status, km_proxima_revisao, tipo_frota, locadora_nome FROM veiculos", conn)
         if not df_veic_log.empty:
-            f_placa_v = st.text_input("Filtrar por Placa do Veículo", key="f_veic_placa").upper().strip()
-            if f_placa_v:
-                df_veic_log = df_veic_log[df_veic_log['placa'].str.contains(f_placa_v)]
             st.dataframe(df_veic_log, use_container_width=True)
         else:
-            st.info("Nenhum veículo cadastrado na base de dados.")
+            st.info("Nenhum veículo cadastrado no sistema.")
 
     with tab_log5:
-        st.subheader("Motoristas Cadastrados no Sistema")
         df_mot_log = pd.read_sql_query("SELECT nome, cnh_numero, cnh_vencimento, termo_aceite FROM motoristas", conn)
         if not df_mot_log.empty:
-            f_nome_m = st.text_input("Filtrar por Nome do Motorista", key="f_mot_nome").strip()
-            if f_nome_m:
-                df_mot_log = df_mot_log[df_mot_log['nome'].str.contains(f_nome_m, case=False)]
             st.dataframe(df_mot_log, use_container_width=True)
         else:
-            st.info("Nenhum motorista cadastrado na base de dados.")
+            st.info("Nenhum motorista cadastrado no sistema.")
+
 elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
     st.title("🚗 Central de Cadastros e Arquivos")
     tab_veic, tab_mot, tab_downloads = st.tabs(["Cadastrar Veículo & CRLV", "Cadastrar Motorista & CNH", "📥 Arquivo Digital (Downloads)"])
@@ -287,9 +276,9 @@ elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
                                        (nova_placa, novo_modelo, km_inicial, km_revisao, trecho_inicial, tipo_f, doc_veiculo, conteudo_crlv, locadora_nome, data_locacao_str))
                         conn.commit()
                         st.success(f"✅ Veículo {nova_placa} cadastrado!")
+                        st.rerun()
                     except sqlite3.IntegrityError:
                         st.error("❌ Essa placa já existe.")
-                    st.rerun()
 
     with tab_mot:
         st.subheader("Inserir Novo Motorista")
@@ -298,23 +287,4 @@ elif escolha == "🚗 Cadastros Gerais (Frota/Motoristas)":
             cnh_m = st.text_input("Número da CNH")
             venc_cnh = st.date_input("Vencimento da CNH")
             upload_cnh = st.file_uploader("Upload da CNH Digital", type=["pdf", "png", "jpg"])
-            upload_termo = st.file_uploader("Upload do Termo de Utilização", type=["pdf", "png", "jpg"])
-            aceitou_termo = st.checkbox("Confirmo conformidade")
-            
-            if st.form_submit_button("Salvar Motorista"):
-                if nome_m and cnh_m and aceitou_termo:
-                    conteudo_cnh = upload_cnh.read() if upload_cnh is not None else None
-                    conteudo_termo = upload_termo.read() if upload_termo is not None else None
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO motoristas VALUES (?, ?, ?, 'Sim', ?, ?)", 
-                                   (nome_m, cnh_m, str(venc_cnh), conteudo_cnh, conteudo_termo))
-                    conn.commit()
-                    st.success(f"👤 Condutor {nome_m} salvo!")
-                st.rerun()
-
-    with tab_downloads:
-        st.subheader("Downloads")
-        cursor = conn.cursor()
-        cursor.execute("SELECT placa, arquivo_crlv FROM veiculos WHERE arquivo_crlv IS NOT NULL")
-        for p, blob in cursor.fetchall():
-            st.download_button(label=f"📥 Baixar CRLV - {p}", data=blob, file_name=f"CRLV_{p}.pdf")
+            upload_termo = st.file_uploader("Upload do Term
