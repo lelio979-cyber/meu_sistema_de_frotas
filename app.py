@@ -54,7 +54,6 @@ def conectar_db():
 
 conn = conectar_db()
 
-# Dicionário de Autopreenchimento de Multas solicitado
 DICIONARIO_MULTAS = {
     "7455-0": {"gravidade": "Média", "pontos": 4, "valor": 130.16, "desc": "Velocidade superior à máxima em até 20%"},
     "7463-0": {"gravidade": "Grave", "pontos": 5, "valor": 195.23, "desc": "Velocidade superior à máxima entre 20% e 50%"},
@@ -82,13 +81,12 @@ if not st.session_state['autenticado']:
             st.session_state['perfil'] = 'gestor'
             st.rerun()
 else:
-    # Menu Lateral
     st.sidebar.title("FleetX Control")
     st.sidebar.write(f"**Perfil ativo:** {st.session_state['perfil'].upper()}")
     
     opcoes_menu = ["📋 Checklist de Campo", "⛽ Abastecimento"]
     if st.session_state['perfil'] == 'gestor':
-        opcoes_menu = ["📊 Dashboard & KPIs", "📋 Checklist de Campo", "⛽ Abastecimento", "🛠️ OS & Aprovações", "⚠️ Multas Automatizadas", "📝 Gestão de Contratos & Sinistros"]
+        opcoes_menu = ["📊 Dashboard & KPIs", "🚗 Cadastrar Veículo", "📋 Checklist de Campo", "⛽ Abastecimento", "🛠️ OS & Aprovações", "⚠️ Multas Automatizadas", "📝 Gestão de Contratos & Sinistros"]
         
     escolha = st.sidebar.radio("Navegação:", opcoes_menu)
     
@@ -98,61 +96,105 @@ else:
         st.rerun()
 
     # ==========================================
-    # 3. MÓDULO 1: CHECKLIST DE CAMPO (FOCO PRINCIPAL)
+    # MÓDULO NOVO: CADASTRO DE VEÍCULO (GESTOR)
     # ==========================================
-    if escolha == "📋 Checklist de Campo":
+    if escolha == "🚗 Cadastrar Veículo":
+        st.title("🚗 Cadastro Central de Veículos da Frota")
+        st.caption("Adicione novos veículos próprios, alugados ou reservas para liberar no checklist de campo.")
+        
+        with st.form("form_cadastro_veiculo", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                nova_placa = st.text_input("Placa do Veículo (Ex: ABC1234 / BRA2E19)").upper().strip()
+                novo_modelo = st.text_input("Modelo / Marca (Ex: Volvo FH 540)")
+                km_inicial = st.number_input("Quilometragem (KM) Atual", min_value=0, step=1)
+            with col2:
+                tipo_frota = st.selectbox("Categoria da Frota", ["Próprio", "Alugado", "Reserva"])
+                trecho_inicial = st.text_input("Trecho / Rota de Operação Atual", value="Base Central")
+                plano_revisao = st.selectbox("Plano de Revisão Preventiva (Troca de Óleo)", [10000, 15000, 20000], help="De quantos em quantos KMs este veículo deve revisar?")
+            
+            cadastrar = st.form_submit_button("Salvar Veículo na Base de Dados")
+            
+            if cadastrar:
+                if not nova_placa or not novo_modelo:
+                    st.error("❌ Por favor, preencha a placa e o modelo do veículo.")
+                else:
+                    try:
+                        cursor = conn.cursor()
+                        # Calcula a km da próxima revisão somando o plano escolhido à km atual
+                        proxima_rev = km_inicial + plano_revisao
+                        
+                        cursor.execute("INSERT INTO veiculos (placa, modelo, km_atual, status, km_proxima_revisao, trecho, tipo_frota) VALUES (?, ?, ?, 'Disponível', ?, ?, ?)",
+                                       (nova_placa, novo_modelo, km_inicial, proxima_rev, trecho_inicial, tipo_frota))
+                        conn.commit()
+                        st.success(f"✅ Veículo {nova_placa} ({novo_modelo}) cadastrado com sucesso! Já está disponível para os operadores de campo.")
+                    except sqlite3.IntegrityError:
+                        st.error("❌ Erro: Já existe um veículo cadastrado com esta mesma placa.")
+
+        # Exibe os veículos já cadastrados logo abaixo
+        st.write("### Frota Ativa Cadastrada")
+        df_ativos = pd.read_sql_query("SELECT placa, modelo, km_atual, km_proxima_revisao, status, trecho, tipo_frota FROM veiculos", conn)
+        st.dataframe(df_ativos, use_container_width=True)
+
+    # ==========================================
+    # 3. MÓDULO 1: CHECKLIST DE CAMPO
+    # ==========================================
+    elif escolha == "📋 Checklist de Campo":
         st.title("📋 Checklist Prático de Entrada e Saída")
         st.caption("Foco operacional: Interface rápida adaptada para celulares e tablets de campo.")
         
         df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
         
-        with st.form("form_checklist", clear_on_submit=True):
-            placa = st.selectbox("Selecione a Placa do Veículo", df_veiculos['placa'])
-            tipo = st.selectbox("Tipo de Movimentação", ["Entrada de Oficina", "Saída de Oficina", "Novo Contrato", "Devolução", "Substituição"])
-            km = st.number_input("Quilometragem (KM) Atual", min_value=0, step=1)
-            combustivel = selectbox_comb = st.selectbox("Nível do Tanque", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
-            pneus = st.radio("Condição dos Pneus (Sulco)", ["Ok (Acima de 1.6mm)", "Alerta (Careca / Troca Necessária)"])
-            avarias = st.text_input("Descreva avarias, sinistros ou observações gerais")
-            operador = st.text_input("Nome do Operador de Campo")
-            
-            enviar = st.form_submit_submit = st.form_submit_button("Transmitir Checklist em Tempo Real")
-            
-            if enviar:
-                cursor = conn.cursor()
-                data_atual = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if df_veiculos.empty:
+            st.warning("⚠️ Nenhum veículo cadastrado na base. O gestor precisa cadastrar um veículo primeiro.")
+        else:
+            with st.form("form_checklist", clear_on_submit=True):
+                placa = st.selectbox("Selecione a Placa do Veículo", df_veiculos['placa'])
+                tipo = st.selectbox("Tipo de Movimentação", ["Entrada de Oficina", "Saída de Oficina", "Novo Contrato", "Devolução", "Substituição"])
+                km = st.number_input("Quilometragem (KM) Atual", min_value=0, step=1)
+                combustivel = st.selectbox("Nível do Tanque", ["Reserva", "1/4", "1/2", "3/4", "Cheio"])
+                pneus = st.radio("Condição dos Pneus (Sulco)", ["Ok (Acima de 1.6mm)", "Alerta (Careca / Troca Necessária)"])
+                avarias = st.text_input("Descreva avarias, sinistros ou observações gerais")
+                operador = st.text_input("Nome do Operador de Campo")
                 
-                # Salva o Checklist
-                cursor.execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) VALUES (?,?,?,?,?,?,?,?)",
-                               (placa, tipo, km, combustivel, avarias, pneus, operador, data_atual))
-                # Atualiza KM geral do veículo
-                cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, placa))
-                conn.commit()
-                st.success(f"✅ Checklist de {tipo} enviado! Dados consolidados na base do Gestor.")
+                enviar = st.form_submit_button("Transmitir Checklist em Tempo Real")
+                
+                if enviar:
+                    cursor = conn.cursor()
+                    data_atual = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    cursor.execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data) VALUES (?,?,?,?,?,?,?,?)",
+                                   (placa, tipo, km, combustivel, avarias, pneus, operador, data_atual))
+                    cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, placa))
+                    conn.commit()
+                    st.success(f"✅ Checklist de {tipo} enviado! Dados consolidados na base do Gestor.")
 
     # ==========================================
-    # 4. MÓDULO 2: ABASTECIMENTO (CAMPO FÁCIL)
+    # 4. MÓDULO 2: ABASTECIMENTO
     # ==========================================
     elif escolha == "⛽ Abastecimento":
         st.title("⛽ Lançamento de Abastecimento / Cartão Combustível")
         df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
         
-        with st.form("form_abastecimento", clear_on_submit=True):
-            placa = st.selectbox("Veículo", df_veiculos['placa'])
-            valor = st.number_input("Valor Total Pago (R$)", min_value=0.0, step=10.0)
-            km = st.number_input("KM registrado no ato", min_value=0)
-            
-            salvar = st.form_submit_button("Registrar Abastecimento")
-            if salvar:
-                cursor = conn.cursor()
-                data_atual = datetime.now().strftime("%Y-%m-%d")
-                # Alimenta custos da operação e atualiza KM do veículo
-                cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", (placa, valor, data_atual))
-                cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, placa))
-                conn.commit()
-                st.success("⛽ Gasto computado com sucesso no fluxo financeiro corporativo!")
+        if df_veiculos.empty:
+            st.warning("⚠️ Nenhum veículo cadastrado na base.")
+        else:
+            with st.form("form_abastecimento", clear_on_submit=True):
+                placa = st.selectbox("Veículo", df_veiculos['placa'])
+                valor = st.number_input("Valor Total Pago (R$)", min_value=0.0, step=10.0)
+                km = st.number_input("KM registrado no ato", min_value=0)
+                
+                salvar = st.form_submit_button("Registrar Abastecimento")
+                if salvar:
+                    cursor = conn.cursor()
+                    data_atual = datetime.now().strftime("%Y-%m-%d")
+                    cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", (placa, valor, data_atual))
+                    cursor.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km, placa))
+                    conn.commit()
+                    st.success("⛽ Gasto computado com sucesso no fluxo financeiro corporativo!")
 
     # ==========================================
-    # 5. MÓDULO 3: OS & APROVAÇÕES (GESTOR)
+    # 5. MÓDULO 3: OS & APROVAÇÕES
     # ==========================================
     elif escolha == "🛠️ OS & Aprovações":
         st.title("🛠️ Fluxo Central de Ordens de Serviço e Manutenções")
@@ -171,7 +213,6 @@ else:
                 if criar:
                     cursor = conn.cursor()
                     data_atual = datetime.now().strftime("%Y-%m-%d")
-                    # Regra de negócio: Criou OS -> Sinaliza em Manutenção
                     cursor.execute("INSERT INTO ordens_servico (placa, tipo, descricao, custo, data) VALUES (?,?,?,?,?)", (placa, tipo_m, desc, custo, data_atual))
                     cursor.execute("UPDATE veiculos SET status = 'Em Manutenção' WHERE placa = ?", (placa,))
                     conn.commit()
@@ -193,7 +234,6 @@ else:
                         if col2.button("✔️ Aprovar (Iniciar)", key=f"ap_{row['id']}"):
                             cursor = conn.cursor()
                             cursor.execute("UPDATE ordens_servico SET status = 'Em Andamento' WHERE id = ?", (row['id'],))
-                            # Regra: Aprovado -> Entra realmente em andamento
                             cursor.execute("UPDATE veiculos SET status = 'Em Andamento' WHERE placa = ?", (row['placa'],))
                             conn.commit()
                             st.rerun()
@@ -201,131 +241,10 @@ else:
                         if col3.button("🔒 Encerrar (Liberar)", key=f"en_{row['id']}"):
                             cursor = conn.cursor()
                             cursor.execute("UPDATE ordens_servico SET status = 'Encerrado' WHERE id = ?", (row['id'],))
-                            # Regra: Encerrado -> Volta a estar Disponível e registra custo real
                             cursor.execute("UPDATE veiculos SET status = 'Disponível' WHERE placa = ?", (row['placa'],))
                             cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Manutenção', ?, ?)", (row['placa'], row['custo'], row['data']))
                             conn.commit()
                             st.success("Veículo liberado para a rota!")
                             st.rerun()
 
-    # ==========================================
-    # 6. MÓDULO 4: MULTAS AUTOMATIZADAS (GESTOR)
-    # ==========================================
-    elif escolha == "⚠️ Multas Automatizadas":
-        st.title("⚠️ Lançamento Inteligente de Infrações")
-        df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            placa = st.selectbox("Veículo Infrator", df_veiculos['placa'])
-            data_m = st.text_input("Data da Infração (DD/MM/AAAA)")
-            endereco = st.text_input("Endereço / Rodovia do Flagrante")
-            codigo = st.text_input("Código de Infração (Ex: 7455-0, 7463-0, 5010-0)")
-            
-            calcular = st.button("Processar e Autopreencher Dados")
-            
-        with col2:
-            if calcular:
-                if codigo in DICIONARIO_MULTAS:
-                    info = DICIONARIO_MULTAS[codigo]
-                    st.subheader("Dados Calculados Automatizados:")
-                    st.write(f"**Gravidade:** {info['gravidade']}")
-                    st.write(f"**Pontuação na CNH:** {info['pontos']} pontos")
-                    st.write(f"**Valor Legal:** R$ {info['valor']}")
-                    st.info(f"**Descrição da Base:** {info['desc']}")
-                    
-                    # Salva no Banco de Multas e debita no Financeiro automaticamente
-                    cursor = conn.cursor()
-                    cursor.execute("INSERT INTO multas (placa, data, endereco, codigo, gravidade, pontos, valor, descricao) VALUES (?,?,?,?,?,?,?,?)",
-                                   (placa, data_m, endereco, codigo, info['gravidade'], info['pontos'], info['valor'], info['desc']))
-                    cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Multa', ?, ?)", (placa, info['valor'], data_m))
-                    conn.commit()
-                    st.success("🚨 Infração vinculada ao prontuário do veículo e provisionada no custo operacional!")
-
-    # ==========================================
-    # 7. MÓDULO 5: CONTRATOS, PEDÁGIOS E SINISTROS
-    # ==========================================
-    elif escolha == "📝 Gestão de Contratos & Sinistros":
-        st.title("📝 Lançamentos Administrativos Gerais")
-        df_veiculos = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-        
-        tipo_c = st.selectbox("Selecione o Tipo de Lançamento Administrativo", ["Pedágio (Tag/Eixos)", "Sinistro (Batidas/Franquias)", "Novo Contrato / Locação / Substituição"])
-        
-        with st.form("form_admin"):
-            placa = st.selectbox("Veículo Vinculado", df_veiculos['placa'])
-            valor = st.number_input("Custo Financeiro Vinculado (R$)", min_value=0.0)
-            obs = st.text_area("Notas / Detalhes de controle")
-            
-            salvar_adm = st.form_submit_button("Computar no Custo de Operação")
-            if salvar_adm:
-                cursor = conn.cursor()
-                cursor.execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)", (placa, tipo_c, valor, datetime.now().strftime("%Y-%m-%d")))
-                conn.commit()
-                st.success(f"Sucesso! Custo de {tipo_c} integrado com sucesso.")
-
-    # ==========================================
-    # 8. MÓDULO 6: DASHBOARD, KPIS E ALERTAS (GESTOR)
-    # ==========================================
-    elif escolha == "📊 Dashboard & KPIs":
-        st.title("📊 Painel Executivo e Tomada de Decisão")
-        
-        # --- BLOCO 1: ALERTAS INTELIGENTES (Troca de óleo / CNH) ---
-        st.subheader("⚠️ Central de Alertas Preditivos (Manutenção de 10 em 10 mil KM e CNH)")
-        col_al1, col_al2 = st.columns(2)
-        
-        with col_al1:
-            df_km = pd.read_sql_query("SELECT placa, km_atual, km_proxima_revisao FROM veiculos", conn)
-            for _, r in df_km.iterrows():
-                dif = r['km_proxima_revisao'] - r['km_atual']
-                if dif <= 1500:
-                    st.error(f"🚨 REVISÃO URGENTE: Veículo {r['placa']} está com {r['km_atual']} KM. Próxima troca de óleo/revisão obrigatória em {r['km_proxima_revisao']} KM (Faltam {dif} KM!)")
-        
-        with col_al2:
-            df_mot = pd.read_sql_query("SELECT * FROM motoristas", conn)
-            for _, r in df_mot.iterrows():
-                venc = datetime.strptime(r['cnh_vencimento'], "%Y-%m-%d")
-                if venc <= datetime.now() + timedelta(days=60):
-                    st.warning(f"⚠️ CNH Próxima do Vencimento: Condutor {r['nome']} vence em {venc.strftime('%d/%m/%Y')}")
-
-        st.divider()
-
-        # --- BLOCO 2: CARTÕES DE INVESTIMENTO OPERACIONAL (KPIs) ---
-        df_fin = pd.read_sql_query("SELECT * FROM financeiro", conn)
-        total_geral = df_fin['valor'].sum() if not df_fin.empty else 0.0
-        
-        c_comb = df_fin[df_fin['tipo_custo'] == 'Combustível']['valor'].sum()
-        c_man = df_fin[df_fin['tipo_custo'] == 'Manutenção']['valor'].sum()
-        
-        kpi1, kpi2, kpi3 = st.columns(3)
-        kpi1.metric("Custo Total de Operação", f"R$ {total_geral:,.2f}")
-        kpi2.metric("Total Cartão Combustível", f"R$ {c_comb:,.2f}")
-        kpi3.metric("Investimento em Oficinas", f"R$ {c_man:,.2f}")
-        
-        st.divider()
-        
-        # --- BLOCO 3: GRÁFICOS DINÂMICOS ---
-        st.subheader("📈 Gráfico de Distribuição Real de Custos")
-        if not df_fin.empty:
-            grafico_data = df_fin.groupby('tipo_custo')['valor'].sum().reset_index()
-            chart = alt.Chart(grafico_data).mark_bar(color='#1f6aa5').encode(
-                x=alt.X('tipo_custo:N', title='Natureza do Custo'),
-                y=alt.Y('valor:Q', title='Total Acumulado (R$)')
-            ).properties(height=300)
-            st.altair_chart(chart, use_container_width=True)
-        else:
-            st.info("Aguardando lançamentos financeiros para gerar os gráficos.")
-            
-        st.divider()
-
-        # --- BLOCO 4: EXPORTAÇÃO DE RELATÓRIOS ---
-        st.subheader("📥 Exportação de Relatórios Gerenciais")
-        tab_rel1, tab_rel2 = st.tabs(["Checklists de Campo Efetuados", "Extrato Financeiro Completo"])
-        
-        with tab_rel1:
-            df_chk_rep = pd.read_sql_query("SELECT * FROM checklists", conn)
-            st.dataframe(df_chk_rep, use_container_width=True)
-            st.download_button("Exportar Planilha de Checklists (CSV)", df_chk_rep.to_csv(index=False), "relatorio_checklists.csv", "text/csv")
-            
-        with tab_rel2:
-            st.dataframe(df_fin, use_container_width=True)
-            st.download_button("Exportar Planilha Financeira (CSV)", df_fin.to_csv(index=False), "extrato_financeiro.csv", "text/csv")
+    # =================
