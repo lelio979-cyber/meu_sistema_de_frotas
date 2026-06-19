@@ -17,7 +17,7 @@ def gerar_hash(senha):
     return hashlib.sha256(senha.encode()).hexdigest()
 
 def criar_tabelas(cursor):
-    # Tabela de Veículos (Atualizada com arquivo_crlv BLOB)
+    # Tabela de Veículos (Com arquivo_crlv BLOB para o documento)
     cursor.execute('''CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, status TEXT DEFAULT 'Disponível', 
         km_proxima_revisao INTEGER, trecho TEXT DEFAULT 'Base Central', tipo_frota TEXT, 
@@ -42,7 +42,7 @@ def criar_tabelas(cursor):
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, data TEXT, endereco TEXT, 
         codigo TEXT, gravidade TEXT, pontos INTEGER, valor REAL, descricao TEXT)''')
 
-    # Tabela de Motoristas (Atualizada com arquivo_cnh e arquivo_termo BLOB)
+    # Tabela de Motoristas (Com arquivo_cnh e arquivo_termo BLOB)
     cursor.execute('''CREATE TABLE IF NOT EXISTS motoristas (
         nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, termo_aceite TEXT,
         arquivo_cnh BLOB, arquivo_termo BLOB)''')
@@ -56,17 +56,6 @@ def conectar_db():
     cursor = conn.cursor()
     criar_tabelas(cursor)
     
-    # Verificar e aplicar migração de colunas novas se a tabela antiga persistir
-    try:
-        cursor.execute("ALTER TABLE veiculos ADD COLUMN arquivo_crlv BLOB")
-    except:
-        pass
-    try:
-        cursor.execute("ALTER TABLE motoristas ADD COLUMN arquivo_cnh BLOB")
-        cursor.execute("ALTER TABLE motoristas ADD COLUMN arquivo_termo BLOB")
-    except:
-        pass
-
     # Criar administrador padrão se a tabela estiver vazia
     cursor.execute("SELECT COUNT(*) FROM usuarios")
     if cursor.fetchone()[0] == 0:
@@ -76,14 +65,17 @@ def conectar_db():
     conn.commit()
     return conn
 
-# Inicialização da base de dados
+# Forçar reset total da base de dados se houver incompatibilidade estrutural
 try:
     conn = conectar_db()
+    # Teste rápido para ver se as novas colunas existem
+    cursor = conn.cursor()
+    cursor.execute("SELECT arquivo_crlv FROM veiculos LIMIT 1")
 except Exception as e:
-    st.warning("Atualizando estrutura do banco de dados...")
+    # Se falhar, remove o ficheiro antigo e força recriação absoluta do zero
+    try: conn.close()
+    except: pass
     if os.path.exists('frotas_codespace.db'):
-        try: conn.close()
-        except: pass
         try: os.remove('frotas_codespace.db')
         except: pass
     conn = conectar_db()
@@ -115,44 +107,4 @@ if not st.session_state['autenticado']:
             if resultado:
                 st.session_state['autenticado'] = True
                 st.session_state['usuario_logado'] = input_usuario
-                st.session_state['perfil_logado'] = resultado[0]
-                st.rerun()
-            else:
-                st.error("Usuário ou senha incorretos. (Padrão: admin / admin123)")
-else:
-    # Menu lateral
-    st.sidebar.title("FleetX Control")
-    st.sidebar.write(f"👤 **Usuário:** {st.session_state['usuario_logado']}")
-    st.sidebar.write(f"🛡️ **Perfil:** {st.session_state['perfil_logado'].upper()}")
-    
-    if st.session_state['perfil_logado'] == 'Gestor':
-        opcoes_menu = [
-            "📊 Dashboard & KPIs", 
-            "🚗 Cadastros Gerais (Frota/Motoristas)", 
-            "👥 Controle de Usuários",  
-            "📍 Atualização de KM Diária",
-            "📋 Checklist de Campo", 
-            "⛽ Abastecimento", 
-            "🛠️ OS & Aprovações", 
-            "⚠️ Multas Automatizadas", 
-            "📝 Gestão de Contratos & Sinistros"
-        ]
-    else:
-        opcoes_menu = ["📍 Atualização de KM Diária", "📋 Checklist de Campo", "⛽ Abastecimento"]
-        
-    escolha = st.sidebar.radio("Navegação:", opcoes_menu)
-    
-    if st.sidebar.button("🚪 Desconectar / Sair", type="primary"):
-        st.session_state['autenticado'] = False
-        st.rerun()
-
-    try:
-        df_veiculos_global = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-    except Exception:
-        df_veiculos_global = pd.DataFrame(columns=['placa'])
-
-    # Módulos do Sistema
-    if escolha == "📊 Dashboard & KPIs":
-        st.title("📊 Painel Executivo de Tomada de Decisão")
-        try:
-            df_f
+                st.session_state
