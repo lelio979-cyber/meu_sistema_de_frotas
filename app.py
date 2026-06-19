@@ -11,8 +11,8 @@ def ger_hash(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 def init_db():
-    # Mudamos para v8 para forçar a criação de um banco totalmente limpo
-    conn = sqlite3.connect('frotas_v8.db', check_same_thread=False)
+    # Atualizado para v9 para acomodar os novos campos de texto e arquivos
+    conn = sqlite3.connect('frotas_v9.db', check_same_thread=False)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS usuarios "
               "(usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)")
@@ -20,10 +20,12 @@ def init_db():
               "(placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, "
               "status TEXT DEFAULT 'Disponível', km_proxima_revisao INTEGER, "
               "trecho TEXT, tipo_frota TEXT, documento TEXT, "
-              "locadora_nome TEXT)")
+              "ano INTEGER, combustivel TEXT, cor TEXT, renavam TEXT, chassi TEXT, "
+              "arquivo_crlv BLOB, locadora_nome TEXT)")
     c.execute("CREATE TABLE IF NOT EXISTS motoristas "
               "(nome TEXT PRIMARY KEY, cnh_numero TEXT, cnh_vencimento TEXT, "
-              "termo_aceite TEXT)")
+              "termo_aceite TEXT, cpf TEXT, telefone TEXT, categoria_cnh TEXT, "
+              "arquivo_cnh BLOB, arquivo_termo BLOB)")
     c.execute("CREATE TABLE IF NOT EXISTS checklists "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, "
               "tipo_movimentacao TEXT, km INTEGER, combustivel TEXT, "
@@ -40,7 +42,6 @@ def init_db():
                   (ger_hash("admin123"),))
     conn.commit()
     return conn
-
 conn = init_db()
 
 if 'auth' not in st.session_state:
