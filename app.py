@@ -55,10 +55,11 @@ def gestao_frota():
         if st.form_submit_button("Salvar Veículo"):
             try:
                 conn = sqlite3.connect(DB_NAME)
-                conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", 
-                             (placa, modelo, motorista, status, km))
+                # Incluímos 'None' para a 6ª coluna (crlv_path ou vencimento) que o banco exige
+                conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?)", 
+                             (placa, modelo, motorista, status, km, None))
                 conn.commit(); conn.close()
-                st.success("Veículo atualizado!")
+                st.success("Veículo atualizado com sucesso!")
             except Exception as e:
                 st.error(f"Erro ao salvar: {e}")
 
