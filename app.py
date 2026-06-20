@@ -87,7 +87,11 @@ else:
         # Executa o código do banco normalmente...
         pass
 
-# Define quais abas cada um pode enxergar
+# --- CORREÇÃO DO MENU LATERAL (LINHA 83) ---
+# 1. Primeiro capturamos o perfil com um nome claro e completo
+perfil_usuario = st.session_state.get('perfil', 'Visualização')
+
+# 2. Montamos as opções baseado na variável correta
 if perfil_usuario == "Gestor":
     opcoes_menu = [
         "🚗 Veículos", 
@@ -103,12 +107,14 @@ elif perfil_usuario == "Operador":
         "📝 Checklist de Campo", 
         "⛽ Abastecimento"
     ]
-else: # Visualização
+else: # Aqui estava o erro! Garantimos que aponta para 'perfil_usuario'
     opcoes_menu = [
         "🚗 Veículos", 
         "📋 Auditoria de Checklists"
     ]
 
+# 3. Renderiza o selectbox na barra lateral
+menu = st.sidebar.selectbox("Navegação", opcoes_menu)
 # Renderiza o menu lateral apenas com as opções permitidas
 menu = st.sidebar.selectbox("Navegação", opcoes_menu)
 
