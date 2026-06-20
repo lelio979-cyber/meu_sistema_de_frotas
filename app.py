@@ -1,87 +1,83 @@
 import streamlit as st
 import sqlite3
-import os
+import pandas as pd
 
-# Configuração da página e do banco
-st.set_page_config(page_title="SGF-Pro V27", layout="wide")
-conn = sqlite3.connect('frotas_v27.db', check_same_thread=False)
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="SGF-Pro V28", layout="wide")
 
-# Criar tabelas necessárias
-conn.execute("CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)")
-conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT)")
+def get_conn():
+    return sqlite3.connect('frotas_v28.db', check_same_thread=False)
 
-# Inserir usuários padrão apenas uma vez
-conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
-conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('user', '123', 'operador')")
-conn.commit()
+# --- INICIALIZAÇÃO SEGURA ---
+def init_db():
+    conn = get_conn()
+    # Criar tabelas
+    conn.execute("CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, marca TEXT, status TEXT)")
+    
+    # Inserir padrão
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('user', '123', 'operador')")
+    conn.commit()
+    conn.close()
 
-import streamlit as st
-import sqlite3
-import os
+init_db()
 
-# Configuração da página e do banco
-st.set_page_config(page_title="SGF-Pro V27", layout="wide")
-conn = sqlite3.connect('frotas_v27.db', check_same_thread=False)
+# --- LOGIN ---
+if 'logado' not in st.session_state:
+    st.session_state['logado'] = False
 
-# Criar tabelas necessárias
-conn.execute("CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)")
-conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT)")
+if not st.session_state['logado']:
+    st.title("🔐 Login SGF-Pro V28")
+    u = st.text_input("Usuário")
+    s = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        conn = get_conn()
+        user = conn.execute("SELECT perfil FROM usuarios WHERE login=? AND senha=?", (u, s)).fetchone()
+        conn.close()
+        if user:
+            st.session_state['logado'] = True
+            st.session_state['perfil'] = user[0]
+            st.rerun()
+        else:
+            st.error("Dados incorretos.")
+    st.stop()
 
-# Inserir usuários padrão apenas uma vez
-conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
-conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('user', '123', 'operador')")
-conn.commit()
-
-# --- ÁREA LOGADA ---
+# --- DASHBOARD E MÓDULOS ---
 st.sidebar.title(f"Perfil: {st.session_state['perfil']}")
 if st.sidebar.button("Sair"):
     st.session_state['logado'] = False
     st.rerun()
 
-elif menu == "Dashboard":
-    st.title("📊 Painel de Controle (Dashboard)")
-    
-    # Busca dados no banco
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro"])
+
+if menu == "Dashboard":
+    st.title("📊 Painel Analítico")
+    conn = get_conn()
     df = pd.read_sql("SELECT * FROM veiculos", conn)
+    conn.close()
     
     if not df.empty:
-        # Colunas para KPIs (Indicadores)
-        col1, col2, col3 = st.columns(3)
-        
-        total_veiculos = len(df)
-        # Exemplo: se tivéssemos status, contaríamos aqui
-        col1.metric("Total de Veículos", total_veiculos)
-        col2.metric("Frota Disponível", total_veiculos) # Placeholder
-        col3.metric("KM Total da Frota", "0 km") # Placeholder
-        
-        st.divider()
-        
-        # Área de Análise Visual
-        st.subheader("Distribuição da Frota")
-        # Exemplo de gráfico se tivéssemos uma coluna 'marca' ou 'status'
-        # Aqui simulamos uma contagem simples
-        st.bar_chart(df['modelo'].value_counts())
-        
-        st.subheader("Lista Geral")
+        col1, col2 = st.columns(2)
+        col1.metric("Total de Veículos", len(df))
+        st.bar_chart(df['marca'].value_counts() if 'marca' in df.columns else None)
         st.dataframe(df, use_container_width=True)
     else:
-        st.info("Nenhum veículo cadastrado. Acesse o menu 'Cadastro' para iniciar.")
-menu = st.sidebar.radio("Navegação", menu_opcoes)
+        st.info("Nenhum veículo cadastrado.")
 
-# --- FUNÇÃO DE CADASTRO ---
-def modulo_cadastro():
-    st.subheader("Cadastro de Veículos (Admin)")
-    with st.form("form_veiculo"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        if st.form_submit_button("Salvar"):
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?, ?)", (placa, modelo))
-            conn.commit()
-            st.success(f"Veículo {placa} salvo!")
-
-# --- LÓGICA DE EXIBIÇÃO DO MENU ---
-if menu == "Dashboard":
-    st.title("Bem-vindo ao SGF-Pro")
-    st.write(f"Logado como: {st.session_state['perfil']}")
-elif menu == "Cadastro de Veículos":
-    modulo_cadastro()
+elif menu == "Cadastro":
+    if st.session_state['perfil'] != 'admin':
+        st.error("Acesso restrito a administradores.")
+    else:
+        st.title("➕ Cadastro de Veículos")
+        with st.form("form_cad"):
+            p = st.text_input("Placa").upper()
+            m = st.text_input("Modelo")
+            ma = st.text_input("Marca")
+            st_val = st.selectbox("Status", ["Ativo", "Manutenção"])
+            if st.form_submit_button("Salvar"):
+                conn = get_conn()
+                conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?)", (p, m, ma, st_val))
+                conn.commit()
+                conn.close()
+                st.success("Veículo salvo!")
