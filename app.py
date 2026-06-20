@@ -1,26 +1,22 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import datetime
 
 # --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="SGF-Fleet Professional", layout="wide")
 DB_NAME = "sgf_fleet.db"
 
-# --- INICIALIZAÇÃO SEGURA ---
+# --- INICIALIZAÇÃO ---
 def init_db():
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, motorista TEXT, status TEXT, km_atual INTEGER)")
-        conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL, data DATE)")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        st.error(f"Erro na inicialização do banco: {e}")
+    conn = sqlite3.connect(DB_NAME)
+    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, motorista TEXT, status TEXT, km_atual INTEGER, extra TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL, data DATE)")
+    conn.commit()
+    conn.close()
 
 init_db()
 
-# --- MÓDULOS ---
+# --- DASHBOARD COM PRONTUÁRIO ---
 def dashboard():
     st.title("📊 Painel de Controle Corporativo")
     conn = sqlite3.connect(DB_NAME)
@@ -31,27 +27,24 @@ def dashboard():
     st.subheader("Frota Ativa e Prontuários")
     
     if not df_v.empty:
-        # Loop para criar um "Prontuário" expansível para cada veículo
         for _, veic in df_v.iterrows():
             with st.expander(f"🚛 Placa: {veic['placa']} | Modelo: {veic['modelo']} | Status: {veic['status']}"):
                 col_a, col_b = st.columns(2)
                 col_a.write(f"**Motorista:** {veic['motorista']}")
                 col_a.write(f"**KM Atual:** {veic['km_atual']}")
                 
-                # Filtrar OS específicas desta placa
                 historico = df_os[df_os['placa'] == veic['placa']]
                 
                 if not historico.empty:
                     col_b.write("**Histórico de Manutenções:**")
                     col_b.dataframe(historico[['data', 'servico', 'custo']], use_container_width=True)
-                    st.write(f"**Custo Acumulado:** R$ {historico['custo'].sum():,.2f}")
+                    col_b.write(f"**Custo Acumulado:** R$ {historico['custo'].sum():,.2f}")
                 else:
-                    col_b.info("Nenhuma manutenção registrada para este veículo.")
+                    col_b.info("Nenhuma manutenção registrada.")
     else:
         st.info("Nenhum veículo cadastrado.")
-    except Exception as e:
-        st.error(f"Erro ao carregar dados: {e}")
 
+# --- GESTÃO ---
 def gestao_frota():
     st.title("🚛 Gestão de Ativos")
     with st.form("form_veic"):
@@ -63,15 +56,19 @@ def gestao_frota():
         km = col1.number_input("KM Atual", min_value=0)
         
         if st.form_submit_button("Salvar Veículo"):
-            try:
-                conn = sqlite3.connect(DB_NAME)
-                # Incluímos 'None' para a 6ª coluna (crlv_path ou vencimento) que o banco exige
-                conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?)", 
-                             (placa, modelo, motorista, status, km, None))
-                conn.commit(); conn.close()
-                st.success("Veículo atualizado com sucesso!")
-            except Exception as e:
-                st.error(f"Erro ao salvar: {e}")
+            conn = sqlite3.connect(DB_NAME)
+            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?)", 
+                         (placa, modelo, motorista, status, km, None))
+            conn.commit()
+            conn.close()
+            st.success("Veículo salvo!")
+
+# --- MENU ---
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Frota"])
+if menu == "Dashboard":
+    dashboard()
+else:
+    gestao_frota()
 
 def abrir_os():
     st.title("🛠️ Lançar OS")
