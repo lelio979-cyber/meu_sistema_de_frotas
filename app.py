@@ -8,8 +8,10 @@ def get_db():
 
 def init_tables():
     conn = get_db()
+    # Apaga a tabela se ela existir, para garantir que as colunas fiquem certas
+    conn.execute("DROP TABLE IF EXISTS veiculos")
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS veiculos (
+        CREATE TABLE veiculos (
             placa TEXT PRIMARY KEY, 
             modelo TEXT,
             ano INTEGER
