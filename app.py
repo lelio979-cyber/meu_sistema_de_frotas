@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime
 import io
 
-# --- 1. CONFIGURAÇÃO E BANCO DE DADOS ---
+# --- 1. CONFIGURAÇÃO ---
 st.set_page_config(page_title="SGF-Fleet Enterprise", layout="wide")
 
 def get_db():
@@ -42,17 +42,18 @@ setup_db()
 if "autenticado" not in st.session_state: st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
-    st.title("🚛 SGF-Fleet Login")
+    st.title("🚛 SGF-Fleet Enterprise - Login")
     if st.text_input("Senha de Acesso", type="password") == "admin":
         if st.button("Entrar"):
             st.session_state.autenticado = True
             st.rerun()
     st.stop()
 
-# --- 3. NAVEGAÇÃO E MÓDULOS ---
+# --- 3. NAVEGAÇÃO ---
 st.sidebar.title("Navegação")
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Checklist"])
 
+# --- MÓDULO DASHBOARD ---
 if menu == "Dashboard":
     st.title("📊 Painel de Controle e Alertas")
     conn = get_db()
@@ -60,7 +61,6 @@ if menu == "Dashboard":
     df_logs = pd.read_sql("SELECT * FROM logs ORDER BY data_hora DESC LIMIT 10", conn)
     conn.close()
     
-    # Alertas de Manutenção
     if not df_v.empty:
         st.subheader("Status de Manutenção Preventiva")
         for index, row in df_v.iterrows():
@@ -72,6 +72,8 @@ if menu == "Dashboard":
             col2.progress(progresso)
             st.write(f"KM: {row['km_atual']} / Limite: {row['limite_revisao']}")
             st.divider()
+    else:
+        st.info("Nenhum veículo cadastrado.")
     
     st.subheader("📜 Auditoria Recente")
     st.dataframe(df_logs)
@@ -80,6 +82,7 @@ if menu == "Dashboard":
     if st.download_button("Baixar Relatório (Excel)", data=gerar_excel(df_v), file_name="frota.xlsx"):
         st.success("Download iniciado!")
 
+# --- MÓDULO CADASTRO ---
 elif menu == "Cadastro":
     st.title("📝 Cadastro de Ativos")
     with st.form("form_cad"):
@@ -95,6 +98,7 @@ elif menu == "Cadastro":
             registrar_log(f"Cadastro: {placa}", "veiculos")
             st.success("Veículo salvo!")
 
+# --- MÓDULO CHECKLIST ---
 elif menu == "Checklist":
     st.title("✅ Checklist Operacional")
     conn = get_db()
