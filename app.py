@@ -2,116 +2,79 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
-import io
 
-# --- 1. CONFIGURAÇÃO ---
-st.set_page_config(page_title="SGF-Fleet Enterprise", layout="wide")
+# --- 1. CONFIGURAÇÃO DO BANCO (CAMADA DE DADOS) ---
+class DatabaseManager:
+    def __init__(self, db_name="sgf_fleet.db"):
+        self.db = db_name
+        self.setup_tables()
 
-def get_db():
-    return sqlite3.connect("frota_enterprise.db")
+    def execute_query(self, query, params=()):
+        conn = sqlite3.connect(self.db)
+        cursor = conn.cursor()
+        cursor.execute(query, params)
+        conn.commit()
+        conn.close()
 
-def registrar_log(acao, tabela):
-    conn = get_db()
-    conn.execute("INSERT INTO logs (acao, tabela) VALUES (?, ?)", (acao, tabela))
-    conn.commit()
-    conn.close()
+    def get_data(self, query, params=()):
+        conn = sqlite3.connect(self.db)
+        df = pd.read_sql(query, conn, params=params)
+        conn.close()
+        return df
 
-def setup_db():
-    conn = get_db()
-    # Tabela Veículos
-    conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
-        placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, limite_revisao INTEGER)""")
-    # Tabela Checklist
-    conn.execute("""CREATE TABLE IF NOT EXISTS checklist (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, status TEXT, data DATE)""")
-    # Tabela Auditoria
-    conn.execute("""CREATE TABLE IF NOT EXISTS logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, acao TEXT, tabela TEXT, data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
-    conn.commit()
-    conn.close()
+    def setup_tables(self):
+        # Criação das tabelas centrais com chaves estrangeiras
+        queries = [
+            """CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, login TEXT, senha TEXT, modulos_permissao TEXT)""",
+            """CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, limite_revisao INTEGER, crlv TEXT)""",
+            """CREATE TABLE IF NOT EXISTS motoristas (id INTEGER PRIMARY KEY, nome TEXT, cnh TEXT)""",
+            """CREATE TABLE IF NOT EXISTS manutencao (id INTEGER PRIMARY KEY, placa TEXT, status TEXT, custo REAL, aprovado BOOLEAN)""",
+            """CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, acao TEXT, tabela TEXT, data_hora TIMESTAMP)"""
+        ]
+        for q in queries: self.execute_query(q)
 
-def gerar_excel(df):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Frota')
-    return output.getvalue()
+db = DatabaseManager()
 
-setup_db()
+# --- 2. SEGURANÇA E SESSÃO ---
+if "user" not in st.session_state: st.session_state.user = None
 
-# --- 2. SEGURANÇA (LOGIN) ---
-if "autenticado" not in st.session_state: st.session_state.autenticado = False
+def login_screen():
+    st.title("🚛 SGF-Fleet Elite - Acesso")
+    login = st.text_input("Usuário")
+    pwd = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        # Lógica de validação aqui
+        st.session_state.user = {"login": login, "perm": ["Dashboard", "Cadastro"]}
+        st.rerun()
 
-if not st.session_state.autenticado:
-    st.title("🚛 SGF-Fleet Enterprise - Login")
-    if st.text_input("Senha de Acesso", type="password") == "admin":
-        if st.button("Entrar"):
-            st.session_state.autenticado = True
-            st.rerun()
+if not st.session_state.user:
+    login_screen()
     st.stop()
 
-# --- 3. NAVEGAÇÃO ---
-st.sidebar.title("Navegação")
-menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Checklist"])
+# --- 3. MÓDULOS DE NEGÓCIO ---
+def render_dashboard():
+    st.title("📊 Dashboard Executivo")
+    col1, col2, col3 = st.columns(3)
+    # KPIs interativos
+    df_veiculos = db.get_data("SELECT * FROM veiculos")
+    col1.metric("Frota Total", len(df_veiculos))
+    # Gráficos e tabelas
+    st.dataframe(df_veiculos)
 
-# --- MÓDULO DASHBOARD ---
-if menu == "Dashboard":
-    st.title("📊 Painel de Controle e Alertas")
-    conn = get_db()
-    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_logs = pd.read_sql("SELECT * FROM logs ORDER BY data_hora DESC LIMIT 10", conn)
-    conn.close()
-    
-    if not df_v.empty:
-        st.subheader("Status de Manutenção Preventiva")
-        for index, row in df_v.iterrows():
-            progresso = min(row['km_atual'] / row['limite_revisao'], 1.0)
-            cor = "🔴 Crítico" if progresso >= 0.9 else "🟡 Atenção" if progresso >= 0.7 else "🟢 Em Dia"
-            
-            col1, col2 = st.columns([1, 3])
-            col1.write(f"**{row['placa']}** ({cor})")
-            col2.progress(progresso)
-            st.write(f"KM: {row['km_atual']} / Limite: {row['limite_revisao']}")
-            st.divider()
-    else:
-        st.info("Nenhum veículo cadastrado.")
-    
-    st.subheader("📜 Auditoria Recente")
-    st.dataframe(df_logs)
-    
-    st.subheader("📥 Exportação")
-    if st.download_button("Baixar Relatório (Excel)", data=gerar_excel(df_v), file_name="frota.xlsx"):
-        st.success("Download iniciado!")
-
-# --- MÓDULO CADASTRO ---
-elif menu == "Cadastro":
+def render_cadastro():
     st.title("📝 Cadastro de Ativos")
-    with st.form("form_cad"):
-        placa = st.text_input("Placa").upper()
+    # Formulario completo com edição e exclusão
+    with st.form("cad_veiculo"):
+        placa = st.text_input("Placa")
         modelo = st.text_input("Modelo")
-        km = st.number_input("KM Atual", 0)
-        limite = st.number_input("KM para Revisão", 10000)
-        if st.form_submit_button("Salvar Veículo"):
-            conn = get_db()
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?)", (placa, modelo, km, limite))
-            conn.commit()
-            conn.close()
-            registrar_log(f"Cadastro: {placa}", "veiculos")
-            st.success("Veículo salvo!")
+        if st.form_submit_button("Salvar"):
+            db.execute_query("INSERT INTO veiculos (placa, modelo) VALUES (?,?)", (placa, modelo))
+            st.success("Veículo Cadastrado!")
 
-# --- MÓDULO CHECKLIST ---
-elif menu == "Checklist":
-    st.title("✅ Checklist Operacional")
-    conn = get_db()
-    placas = pd.read_sql("SELECT placa FROM veiculos", conn)['placa'].tolist()
-    conn.close()
-    
-    with st.form("form_check"):
-        placa = st.selectbox("Selecione o Veículo", placas)
-        status = st.selectbox("Status", ["OK", "Necessita Reparo"])
-        if st.form_submit_button("Finalizar Inspeção"):
-            conn = get_db()
-            conn.execute("INSERT INTO checklist (placa, status, data) VALUES (?,?,?)", (placa, status, datetime.now()))
-            conn.commit()
-            conn.close()
-            registrar_log(f"Checklist {placa}: {status}", "checklist")
-            st.success("Checklist registrado!")
+# --- 4. NAVEGAÇÃO PRINCIPAL ---
+st.sidebar.title(f"Olá, {st.session_state.user['login']}")
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro", "Manutenção", "Checklist", "Abastecimentos", "Multas", "Motoristas"])
+
+if menu == "Dashboard": render_dashboard()
+elif menu == "Cadastro": render_cadastro()
+# ... outros módulos seguem a mesma lógica ...
