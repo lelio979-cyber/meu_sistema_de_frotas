@@ -64,11 +64,10 @@ elif menu == "Manutenção (OS)":
     st.title("🛠️ Controle de OS")
     # Lógica de aprovação de custos aqui...
 
-elif menu == "Motoristas & Multimport streamlit as st
-import sqlite3
-import pandas as pd
-
-# --- CLASSE DE GESTÃO DO SISTEMA ---
+elif menu == "Motoristas & Multas":
+    st.title("👤 Motoristas e Infrações")
+    # Lógica de integração motorista/multa/CTB aqui...
+    # --- CLASSE DE GESTÃO DO SISTEMA ---
 class FleetManager:
     def __init__(self):
         self.conn = sqlite3.connect("sgf_fleet_elite.db", check_same_thread=False)
@@ -132,6 +131,4 @@ elif menu == "Motoristas/Multas":
         if st.form_submit_button("Cadastrar Motorista"):
             fm.conn.execute("INSERT INTO motoristas (nome) VALUES (?)", (nome,))
             fm.conn.commit()
-            st.rerun()as":
-    st.title("👤 Motoristas e Infrações")
-    # Lógica de integração motorista/multa/CTB aqui...
+            st.rerun()
