@@ -2,10 +2,10 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURAÇÃO ---
-st.set_page_config(page_title="SGF-Pro Elite", layout="wide")
+st.set_page_config(page_title="SGF-Pro Corporativo", layout="wide")
 DB_NAME = "sgf_final.db"
 
 def get_conn():
@@ -13,11 +13,10 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # Tabela Veículos
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
-        valor_locacao REAL, usuario TEXT, cidade TEXT, crlv_path TEXT)""")
+        valor_locacao REAL, usuario TEXT, cidade TEXT, crlv_path TEXT, vencimento_crlv DATE)""")
     
     # Migração automática para garantir o campo crlv_path
     cursor = conn.cursor()
@@ -25,6 +24,12 @@ def init_db():
     cols = [info[1] for info in cursor.fetchall()]
     if 'crlv_path' not in cols:
         conn.execute("ALTER TABLE veiculos ADD COLUMN crlv_path TEXT")
+    # Migração para novos campos
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(veiculos)")
+    cols = [info[1] for info in cursor.fetchall()]
+    if 'vencimento_crlv' not in cols: conn.execute("ALTER TABLE veiculos ADD COLUMN vencimento_crlv DATE")
+    conn.close()
         
     conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
         id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
@@ -49,26 +54,25 @@ if not st.session_state['logado']:
 
 # --- DASHBOARD ESTRATÉGICO ---
 def dashboard():
-    st.title("📊 Painel Estratégico de Frota")
+    st.title("📊 Painel de Controle Corporativo")
     conn = get_conn()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_d = pd.read_sql("SELECT * FROM despesas", conn)
+    conn.close()
     
-    # KPIs
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Custo Total", f"R$ {df_d['valor'].sum():,.2f}")
-    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}")
-    c3.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
-    c4.metric("Total de Ativos", len(df_v))
+    # 1. FILTROS DINÂMICOS
+    st.sidebar.subheader("Filtros de Gestão")
+    cidades = st.sidebar.multiselect("Filtrar por Cidade", df_v['cidade'].unique())
+    if cidades: df_v = df_v[df_v['cidade'].isin(cidades)]
     
-    st.divider()
-    st.subheader("Gestão de Ativos")
-    edited_df = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
+    # 2. ALERTAS DE VENCIMENTO
+    st.subheader("⚠️ Alertas de Vencimento (Próximos 30 dias)")
+    hoje = datetime.now().date()
+    limite = hoje + timedelta(days=30)
+    df_v['vencimento_crlv'] = pd.to_datetime(df_v['vencimento_crlv']).dt.date
+    vencendo = df_v[(df_v['vencimento_crlv'] <= limite) & (df_v['vencimento_crlv'] >= hoje)]
     
-    if st.button("Salvar Edições na Tabela"):
-        edited_df.to_sql('veiculos', conn, if_exists='replace', index=False)
-        st.success("Dados salvos!")
-        
+    if not vencendo.empty: st.error(f"Atenção: {len(vencendo)} veículos com documentos próximos ao vencimento!")
+    else: st.success("Documentação em dia.")        
     conn.close()
 
 # --- CADASTRO COMPLETO ---
