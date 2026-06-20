@@ -6,7 +6,7 @@ import pandas as pd
 st.set_page_config(page_title="SGF-Fleet Elite Pro", layout="wide")
 DB_NAME = "sgf_fleet_elite.db"
 
-# --- BANCO DE DADOS (Estrutura Completa) ---
+# --- BANCO DE DADOS (Estrutura Robusta) ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     # Tabela Veículos
@@ -21,7 +21,7 @@ def init_db():
 
 init_db()
 
-# --- MÓDULOS DO SISTEMA ---
+# --- MÓDULOS ---
 def dashboard():
     st.title("📊 Painel de Performance (Elite Pro)")
     conn = sqlite3.connect(DB_NAME)
@@ -29,18 +29,18 @@ def dashboard():
     df_os = pd.read_sql("SELECT * FROM os", conn)
     conn.close()
     
+    st.subheader("Frota Ativa e Indicadores")
     if not df_v.empty:
         for _, veic in df_v.iterrows():
             total_custo = df_os[df_os['placa'] == veic['placa']]['custo'].sum()
             custo_km = total_custo / veic['km_atual'] if veic['km_atual'] > 0 else 0
             
-            with st.expander(f"🚛 {veic['placa']} | {veic['modelo']} (Condutor: {veic['motorista']})"):
+            with st.expander(f"🚛 {veic['placa']} | {veic['modelo']} (Motorista: {veic['motorista']})"):
                 c1, c2, c3 = st.columns(3)
                 c1.metric("KM Atual", f"{veic['km_atual']:,}")
                 c2.metric("Custo Manutenção", f"R$ {total_custo:,.2f}")
                 c3.metric("Eficiência (Custo/KM)", f"R$ {custo_km:.2f}")
                 
-                # Alerta de Revisão
                 if veic['km_atual'] >= veic['km_revisao']:
                     st.error(f"🚨 ALERTA: Veículo {veic['placa']} com revisão vencida!")
     else:
@@ -54,7 +54,7 @@ def gestao_frota():
         modelo = col2.text_input("Modelo")
         motorista = col1.text_input("Motorista")
         km = col2.number_input("KM Atual", min_value=0)
-        km_rev = col2.number_input("KM Próxima Revisão", min_value=0)
+        km_rev = col1.number_input("KM Próxima Revisão", min_value=0)
         
         if st.form_submit_button("Registrar Ativo"):
             conn = sqlite3.connect(DB_NAME)
@@ -95,11 +95,13 @@ def apontar_km():
             conn.commit(); conn.close()
             st.success("KM Atualizado!"); st.rerun()
 
-# --- MENU DE NAVEGAÇÃO ---
-st.sidebar.title("SGF-Fleet Elite")
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM"])
+def exportar_relatorio():
+    st.title("📥 Relatório Gerencial")
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
+    conn.close()
+    st.download_button("Baixar Relatório (CSV)", df.to_csv(index=False), "frota_relatorio.csv", "text/csv")
+    st.dataframe(df, use_container_width=True)
 
-if menu == "Dashboard": dashboard()
-elif menu == "Gestão de Ativos": gestao_frota()
-elif menu == "Lançar OS": lancar_os()
-elif menu == "Apontar KM": apontar_km()
+# --- MENU ---
+menu = st.sidebar.radio("Navegação", ["Dashboard",
