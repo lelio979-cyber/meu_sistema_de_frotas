@@ -77,23 +77,17 @@ if not st.session_state['autenticado']:
         usuario_input = st.text_input("Usuário").strip().lower()
         senha_input = st.text_input("Senha", type="password")
         
-        if st.form_submit_button("Entrar"):
-            # Busca o usuário no banco de dados v13
-            res = conn.cursor().execute(
-                "SELECT senha_hash, perfil FROM usuarios WHERE usuario = ?", 
-                (usuario_input,)
-            ).fetchone()
-            
-            if res and ger_hash(senha_input) == res[0]:
-                st.session_state['autenticado'] = True
-                st.session_state['u_log'] = usuario_input
-                st.session_state['perfil'] = res[1] # Armazena se é Gestor, Operador ou Visualização
-                st.success("Logado com sucesso!")
-                st.rerun()
-            else:
-                st.error("❌ Usuário ou senha incorretos.")
-    st.stop() # Interrompe a execução do app para não renderizar as telas sem login
-
+        # --- SUBSTITUA O BLOCO DO BOTÃO POR ESTE PADRÃO LIMPÃO ---
+if st.form_submit_button("Salvar Registro"):
+    if st.session_state.get('perfil') == "Visualização":
+        st.error("❌ Acesso Negado: Seu perfil de 'Visualização' não permite realizar alterações ou cadastros.")
+    else:
+        # --- O SEU CÓDIGO ATUAL DE INSERÇÃO NO BANCO FICA AQUI EMBAIXO ---
+        # Exemplo:
+        # conn.cursor().execute("INSERT INTO ...")
+        # conn.commit()
+        st.success("Registro salvo com sucesso!")
+        st.rerun()
 # ==============================================================================
 # --- CONSTRUÇÃO DO MENU BASEADO NO PERFIL ATIVO ---
 # ==============================================================================
