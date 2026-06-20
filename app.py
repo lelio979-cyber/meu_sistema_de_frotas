@@ -1,84 +1,66 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from fpdf import FPDF
+import base64
 
-# --- CONFIGURAÇÃO E BANCO ---
-st.set_page_config(page_title="SGF-Fleet Profissional", layout="wide")
-DB_NAME = "sgf_fleet_v2.db"
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="SGF-Fleet Pro", layout="wide")
+DB_NAME = "sgf_fleet_v3.db"
 
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    # Ativos
-    conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
-        placa TEXT PRIMARY KEY, modelo TEXT, motorista TEXT, 
-        status TEXT, km_atual INTEGER)""")
-    # Ordens de Serviço (Manutenção/Custos)
-    conn.execute("""CREATE TABLE IF NOT EXISTS os (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, 
-        servico TEXT, custo REAL, data DATE, status_os TEXT)""")
-    conn.commit()
-    conn.close()
-
-init_db()
+# Função para gerar o PDF da OS
+def gerar_pdf(placa, servico, custo, data):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt="ORDEM DE SERVIÇO - SGF-Fleet", ln=True, align='C')
+    pdf.set_font("Arial", size=12)
+    pdf.ln(10)
+    pdf.cell(200, 10, txt=f"Veiculo: {placa}", ln=True)
+    pdf.cell(200, 10, txt=f"Servico: {servico}", ln=True)
+    pdf.cell(200, 10, txt=f"Custo: R$ {custo:.2f}", ln=True)
+    pdf.cell(200, 10, txt=f"Data: {data}", ln=True)
+    return pdf.output(dest='S').encode('latin-1')
 
 # --- MÓDULO DE GESTÃO ---
-def gestao_frota():
-    st.title("🚛 Gestão de Ativos")
-    with st.form("form_veic"):
-        col1, col2 = st.columns(2)
-        placa = col1.text_input("Placa").upper()
-        modelo = col2.text_input("Modelo")
-        motorista = col1.text_input("Motorista")
-        status = col2.selectbox("Status", ["Ativo", "Manutenção", "Inativo"])
-        km = col1.number_input("KM Atual", min_value=0)
-        
-        if st.form_submit_button("Salvar Veículo"):
-            conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", 
-                         (placa, modelo, motorista, status, km))
-            conn.commit(); conn.close()
-            st.success("Veículo atualizado!")
-
-# --- MÓDULO ORDEM DE SERVIÇO ---
-def ordem_servico():
-    st.title("🛠️ Nova Ordem de Serviço")
+def abrir_os():
+    st.title("🛠️ Emitir Ordem de Serviço")
     conn = sqlite3.connect(DB_NAME)
     veiculos = pd.read_sql("SELECT placa FROM veiculos", conn)['placa'].tolist()
     
-    with st.form("form_os"):
-        placa = st.selectbox("Selecione o Veículo", veiculos)
+    with st.form("form_pdf"):
+        placa = st.selectbox("Veículo", veiculos)
         servico = st.text_input("Descrição do Serviço")
-        custo = st.number_input("Custo do Serviço (R$)", min_value=0.0)
-        data = st.date_input("Data da OS")
+        custo = st.number_input("Custo (R$)", min_value=0.0)
+        data = st.date_input("Data")
         
-        if st.form_submit_button("Abrir Ordem de Serviço"):
-            conn.execute("INSERT INTO os (placa, servico, custo, data, status_os) VALUES (?,?,?,?,?)", 
-                         (placa, servico, custo, data, "Concluído"))
+        if st.form_submit_button("Gerar e Salvar OS"):
+            # Salva no Banco
+            conn.execute("INSERT INTO os (placa, servico, custo, data) VALUES (?,?,?,?)", 
+                         (placa, servico, custo, data))
             conn.commit()
-            st.success("OS registrada com sucesso!")
+            
+            # Gera o PDF para Download
+            pdf_data = gerar_pdf(placa, servico, custo, str(data))
+            st.download_button(label="📥 Baixar PDF da OS", data=pdf_data, 
+                               file_name=f"OS_{placa}_{data}.pdf", mime="application/pdf")
+            st.success("OS gerada com sucesso!")
     conn.close()
 
-# --- DASHBOARD DE INTELIGÊNCIA ---
+# --- DASHBOARD DE GESTÃO ---
 def dashboard():
-    st.title("📊 Fleet Intelligence")
+    st.title("📊 Painel de Controle Corporativo")
     conn = sqlite3.connect(DB_NAME)
-    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_os = pd.read_sql("SELECT * FROM os", conn)
     conn.close()
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Frota Ativa", len(df_v[df_v['status']=='Ativo']))
-    c2.metric("Total Gasto (Manutenção)", f"R$ {df_os['custo'].sum():,.2f}")
-    c3.metric("OS Abertas", len(df_os))
-    
-    st.subheader("Histórico de Manutenções")
-    st.dataframe(df_os, use_container_width=True)
+    st.subheader("Custos de Manutenção por Veículo")
+    if not df_os.empty:
+        fig = pd.pivot_table(df_os, values='custo', index='placa', aggfunc='sum')
+        st.bar_chart(fig)
+        st.dataframe(df_os, use_container_width=True)
 
-# --- MENU NAVEGAÇÃO ---
-st.sidebar.title("SGF-Fleet Menu")
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Frota", "Abrir OS"])
-
+# --- MENU ---
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Frota", "Emitir OS"])
 if menu == "Dashboard": dashboard()
-elif menu == "Gestão de Frota": gestao_frota()
-elif menu == "Abrir OS": ordem_servico()
+elif menu == "Emitir OS": abrir_os()
