@@ -44,6 +44,9 @@ with aba1:
             conn.commit()
             st.rerun()
 
+    st.subheader("Veículos Ativos")
+    df = pd.read_sql("SELECT * FROM frota", conn)
+
     # --- LISTAGEM COM ALERTAS DE PRAZO ---
     st.subheader("Veículos Ativos")
     df = pd.read_sql("SELECT * FROM frota", conn)
@@ -51,13 +54,12 @@ with aba1:
     for _, row in df.iterrows():
         c1, c2, c3 = st.columns([3, 2, 1])
         
-        # Formatação das datas
         rev_formatada = pd.to_datetime(row['data_revisao']).strftime('%d/%m/%Y')
         ipva_formatada = pd.to_datetime(row['data_ipva']).strftime('%d/%m/%Y')
         
         c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")
         
-        # Alinhamento correto do if: 8 espaços antes do 'if'
+        # O IF abaixo deve estar no mesmo nível de indentação do c1.write
         if datetime.strptime(row['data_revisao'], '%Y-%m-%d') < datetime.now():
             c2.error("⚠️ Revisão Atrasada!")
         
