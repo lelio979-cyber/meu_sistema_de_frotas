@@ -10,45 +10,45 @@ def get_db():
 
 def setup():
     conn = get_db()
+    # Tabelas já existentes
     conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km INTEGER)")
     conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL)")
-    # Nova tabela de combustíveis
     conn.execute("CREATE TABLE IF NOT EXISTS combustivel (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, litros REAL, km_rodado REAL)")
+    # Nova Tabela de Multas
+    conn.execute("CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, valor REAL, comprovante TEXT)")
     conn.commit()
     conn.close()
 
 setup()
 
 st.title("🚛 Gestão de Frota")
-menu = st.sidebar.radio("Menu", ["Cadastro", "Manutenção", "Combustível", "Dashboard"])
+menu = st.sidebar.radio("Menu", ["Cadastro", "Manutenção", "Combustível", "Multas", "Dashboard"])
 
-# [Mantenha os módulos anteriores de Cadastro e Manutenção aqui]
-# --- NOVO MÓDULO ---
-if menu == "Combustível":
-    st.subheader("Registrar Abastecimento")
+# [Inclua aqui a lógica anterior de Cadastro, Manutenção e Combustível]
+
+if menu == "Multas":
+    st.subheader("Registrar Multa")
     conn = get_db()
     veiculos = pd.read_sql("SELECT placa FROM veiculos", conn)
     conn.close()
     
     if not veiculos.empty:
-        with st.form("form_comb"):
+        with st.form("form_multa"):
             placa = st.selectbox("Veículo", veiculos['placa'])
-            litros = st.number_input("Litros Abastecidos", 0.1)
-            km_rodado = st.number_input("KM Rodado desde último abastecimento", 0.1)
-            if st.form_submit_button("Salvar Combustível"):
+            valor = st.number_input("Valor da Multa (R$)", 0.0)
+            foto = st.text_input("Link da Foto/Comprovante")
+            if st.form_submit_button("Salvar Multa"):
                 conn = get_db()
-                conn.execute("INSERT INTO combustivel (placa, litros, km_rodado) VALUES (?, ?, ?)", (placa, litros, km_rodado))
+                conn.execute("INSERT INTO multas (placa, valor, comprovante) VALUES (?, ?, ?)", (placa, valor, foto))
                 conn.commit()
                 conn.close()
-                media = km_rodado / litros
-                st.success(f"Média calculada: {media:.2f} KM/L!")
-    else: st.warning("Cadastre um veículo primeiro.")
+                st.success("Multa registrada!")
+    else: st.warning("Cadastre um veículo antes.")
 
 elif menu == "Dashboard":
     st.subheader("Painel Geral")
     conn = get_db()
-    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_comb = pd.read_sql("SELECT * FROM combustivel", conn)
+    df_multas = pd.read_sql("SELECT * FROM multas", conn)
     conn.close()
-    st.write("### Consumo de Combustível")
-    st.dataframe(df_comb)
+    st.write("### Histórico de Multas")
+    st.dataframe(df_multas)
