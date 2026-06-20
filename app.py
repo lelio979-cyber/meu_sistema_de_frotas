@@ -610,10 +610,10 @@ elif menu == "📝 Checklist de Campo":
                         
                         # 1. Inserção completa no Banco de Dados v12
                         conn.cursor().execute(
-                            "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data, motorista, destino, finalidade, limpeza_interna, limpeza_externa, inspecao_detalhada, foto_avaria, nivel_oleo, km_troca_oleo, numero_lacre, litros_abastecidos, justificativa_horario, pneu_di_esq, pneu_di_dir, pneu_tr_esq, pneu_tr_dir) "
-                            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                            (placa_sel, tipo_mov, km_vistoria, comb_nivel, avarias, pneus_geral, st.session_state['u_log'], data_agora, mot_sel, destino, finalidade, limp_int, limp_ext, resumo_texto, foto_bytes, nivel_oleo, km_troca_oleo, num_lacre, litros_abastec, justificativa_txt, p_di_esq, p_di_dir, p_tr_esq, p_tr_dir)
-                        )
+    "INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data, motorista, destino, finalidade, limpeza_interna, limpeza_externa, inspecao_detalhada, foto_avaria, nivel_oleo, km_troca_oleo, numero_lacre, litros_abastecidos, justificativa_horario, pneu_di_esq, pneu_di_dir, pneu_tr_esq, pneu_tr_dir) "
+    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+    (placa_sel, tipo_mov, km_vistoria, comb_nivel, avarias, pneus_geral, st.session_state['u_log'], data_agora, mot_sel, destino, finalidade, limp_int, limp_ext, resumo_texto, foto_bytes, nivel_oleo, km_troca_oleo, numero_lacre, litros_abast, justificativa_txt, p_di_esq, p_di_dir, p_tr_esq, p_tr_dir)
+)
                         
                         # 2. Regra de Negócio Automática de Mudança de Status do Veículo
                         if tipo_mov == "Entrada em Oficina":
