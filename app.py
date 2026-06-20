@@ -2,46 +2,51 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# --- 1. PERSISTÊNCIA (Banco de Dados) ---
+# --- BANCO DE DADOS ---
 conn = sqlite3.connect("sgf_frota.db", check_same_thread=False)
-conn.execute("CREATE TABLE IF NOT EXISTS frota (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, modelo TEXT, custo_manutencao REAL)")
+conn.execute("CREATE TABLE IF NOT EXISTS frota (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, modelo TEXT, custo REAL, motorista TEXT)")
 conn.commit()
 
-st.title("🚛 SGF-Fleet Pro: Gestão Profissional")
+st.set_page_config(layout="wide", page_title="SGF-Fleet Elite")
+st.title("🚛 SGF-Fleet Elite: Gestão Completa")
 
-# --- 2. OPERAÇÕES (Cadastro, Edição e Exclusão) ---
-aba1, aba2 = st.tabs(["Cadastro e Gestão", "Relatório de Custos"])
+aba1, aba2, aba3 = st.tabs(["Frota e Motoristas", "Financeiro e Alertas", "Dados"])
 
+# --- 1. GESTÃO DE FROTA E MOTORISTAS ---
 with aba1:
-    with st.form("cadastro"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        custo = st.number_input("Custo de Manutenção Inicial (R$)", min_value=0.0)
-        if st.form_submit_button("Salvar Veículo"):
-            conn.execute("INSERT INTO frota (placa, modelo, custo_manutencao) VALUES (?,?,?)", (placa, modelo, custo))
-            conn.commit()
-            st.success("Veículo salvo!")
-            st.rerun()
-
-    # Exibe a lista para Edição/Exclusão
-    df = pd.read_sql("SELECT * FROM frota", conn)
-    st.subheader("Veículos Cadastrados")
-    
-    for index, row in df.iterrows():
-        col1, col2, col3 = st.columns([2, 2, 1])
-        col1.write(f"{row['placa']} - {row['modelo']}")
-        col2.write(f"R$ {row['custo_manutencao']:.2f}")
-        if col3.button("Excluir", key=f"del_{row['id']}"):
-            conn.execute("DELETE FROM frota WHERE id=?", (row['id'],))
+    with st.form("cad_frota"):
+        c1, c2, c3 = st.columns(3)
+        placa = c1.text_input("Placa").upper()
+        modelo = c2.text_input("Modelo")
+        motorista = c3.text_input("Nome do Motorista")
+        custo = st.number_input("Custo de Manutenção (R$)", min_value=0.0)
+        
+        if st.form_submit_button("Registrar Veículo"):
+            conn.execute("INSERT INTO frota (placa, modelo, custo, motorista) VALUES (?,?,?,?)", (placa, modelo, custo, motorista))
             conn.commit()
             st.rerun()
 
-# --- 3. RELATÓRIOS (Inteligência de Custos) ---
+# --- 2. RELATÓRIOS E ALERTAS FINANCEIROS ---
 with aba2:
-    st.subheader("Resumo Financeiro da Frota")
+    df = pd.read_sql("SELECT * FROM frota", conn)
     if not df.empty:
-        total = df['custo_manutencao'].sum()
-        st.metric("Custo Total Acumulado", f"R$ {total:,.2f}")
-        st.bar_chart(df.set_index('placa')['custo_manutencao'])
+        st.subheader("Análise de Custos")
+        # Alerta: Se o custo passar de R$ 500, o sistema destaca
+        for _, row in df.iterrows():
+            if row['custo'] > 500:
+                st.error(f"⚠️ ALERTA: Veículo {row['placa']} está com custo elevado (R$ {row['custo']:.2f})!")
+            else:
+                st.success(f"✅ Veículo {row['placa']} dentro dos limites.")
     else:
-        st.info("Nenhum custo registrado.")
+        st.info("Nenhum registro encontrado.")
+
+# --- 3. DADOS (VISUALIZAÇÃO) ---
+with aba3:
+    st.subheader("Gestão de Dados")
+    df = pd.read_sql("SELECT * FROM frota", conn)
+    st.dataframe(df, use_container_width=True)
+    
+    if st.button("Limpar Base de Dados"):
+        conn.execute("DELETE FROM frota")
+        conn.commit()
+        st.rerun()
