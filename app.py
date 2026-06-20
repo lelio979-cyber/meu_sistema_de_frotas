@@ -30,7 +30,37 @@ with st.form("form", clear_on_submit=True):
         conn.commit()
         st.rerun()
 
-# Exibição
+# --- EXIBIÇÃO COM ALERTAS ---
 st.subheader("Veículos Ativos")
 df = pd.read_sql("SELECT * FROM frota", conn)
-st.dataframe(df, use_container_width=True)
+
+if not df.empty:
+    # Função para verificar o status
+    def verificar_status(data_str):
+        if not data_str or data_str == "None":
+            return "Indefinido"
+        # Compara a data do banco com a data de hoje (20/06/2026)
+        if data_str < "2026-06-20":
+            return "⚠️ Atrasado"
+        return "✅ Em dia"
+
+    # Aplica a lógica de status nas colunas
+    df['Status Revisão'] = df['data_revisao'].apply(verificar_status)
+    df['Status IPVA'] = df['data_ipva'].apply(verificar_status)
+
+    # Exibe a tabela com os status
+    st.dataframe(
+        df, 
+        column_config={
+            "status": st.column_config.TextColumn("Status"),
+        },
+        use_container_width=True
+    )
+
+    # Filtro opcional: Mostrar apenas alertas
+    if st.checkbox("Mostrar apenas veículos com alertas"):
+        alertas = df[(df['Status Revisão'] == "⚠️ Atrasado") | (df['Status IPVA'] == "⚠️ Atrasado")]
+        st.warning("Veículos que precisam de atenção imediata:")
+        st.table(alertas)
+else:
+    st.info("Nenhum veículo cadastrado.")
