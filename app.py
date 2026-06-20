@@ -50,8 +50,14 @@ with aba1:
     
     for _, row in df.iterrows():
         c1, c2, c3 = st.columns([3, 2, 1])
-c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")        
-        # Lógica de Alerta (se faltar menos de 30 dias)
+        
+        # Formatação das datas
+        rev_formatada = pd.to_datetime(row['data_revisao']).strftime('%d/%m/%Y')
+        ipva_formatada = pd.to_datetime(row['data_ipva']).strftime('%d/%m/%Y')
+        
+        c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")
+        
+        # Alinhamento correto do if: 8 espaços antes do 'if'
         if datetime.strptime(row['data_revisao'], '%Y-%m-%d') < datetime.now():
             c2.error("⚠️ Revisão Atrasada!")
         
