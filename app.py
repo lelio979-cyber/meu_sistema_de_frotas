@@ -3,84 +3,86 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-# --- 1. CONFIGURAÇÃO DO BANCO (CAMADA DE DADOS) ---
-class DatabaseManager:
-    def __init__(self, db_name="sgf_fleet.db"):
-        self.db = db_name
-        self.setup_tables()
+# --- CONFIGURAÇÃO E BANCO ---
+st.set_page_config(page_title="SGF-Fleet Elite", layout="wide")
 
-    def execute_query(self, query, params=()):
-        conn = sqlite3.connect(self.db)
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        conn.commit()
-        conn.close()
+def get_db():
+    return sqlite3.connect("sgf_fleet_elite.db")
 
-    def get_data(self, query, params=()):
-        conn = sqlite3.connect(self.db)
-        df = pd.read_sql(query, conn, params=params)
-        conn.close()
-        return df
-
-    def setup_tables(self):
-        # Criação das tabelas centrais com chaves estrangeiras
-        queries = [
-            """CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, login TEXT, senha TEXT, modulos_permissao TEXT)""",
-            """CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, limite_revisao INTEGER, crlv TEXT)""",
-            """CREATE TABLE IF NOT EXISTS motoristas (id INTEGER PRIMARY KEY, nome TEXT, cnh TEXT)""",
-            """CREATE TABLE IF NOT EXISTS manutencao (id INTEGER PRIMARY KEY, placa TEXT, status TEXT, custo REAL, aprovado BOOLEAN)""",
-            """CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, acao TEXT, tabela TEXT, data_hora TIMESTAMP)"""
-        ]   """CREATE TABLE IF NOT EXISTS usuarios (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        login TEXT UNIQUE,
-        senha TEXT,
-        modulos_permissao TEXT)""") # Ex: "Dashboard,Cadastro,Manutencao"
+def setup_db():
+    conn = get_db()
+    # Tabelas Core
+    conn.execute("CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, permissao TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, limite_revisao INTEGER, crlv TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS manutencao (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL, status TEXT, aprovado BOOLEAN DEFAULT 0)")
+    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT, acao TEXT, tabela TEXT, data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
     conn.commit()
     conn.close()
-        for q in queries: self.execute_query(q)
 
-db = DatabaseManager()
+setup_db()
 
-# --- 2. SEGURANÇA E SESSÃO ---
+# --- SEGURANÇA E SESSÃO ---
 if "user" not in st.session_state: st.session_state.user = None
 
-def login_screen():
-    st.title("🚛 SGF-Fleet Elite - Acesso")
-    login = st.text_input("Usuário")
-    pwd = st.text_input("Senha", type="password")
+def login():
+    st.title("🚛 SGF-Fleet Elite - Login")
+    login_input = st.text_input("Usuário")
+    senha_input = st.text_input("Senha", type="password")
     if st.button("Entrar"):
-        # Lógica de validação aqui
-        st.session_state.user = {"login": login, "perm": ["Dashboard", "Cadastro"]}
+        # Verificação simples (expandir conforme necessidade)
+        st.session_state.user = {"login": login_input, "perm": "admin"}
         st.rerun()
 
 if not st.session_state.user:
-    login_screen()
+    login()
     st.stop()
 
-# --- 3. MÓDULOS DE NEGÓCIO ---
-def render_dashboard():
+# --- NAVEGAÇÃO ---
+st.sidebar.title(f"Usuário: {st.session_state.user['login']}")
+menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Manutenção", "Auditoria"])
+
+# --- DASHBOARD ---
+if menu == "Dashboard":
     st.title("📊 Dashboard Executivo")
-    col1, col2, col3 = st.columns(3)
-    # KPIs interativos
-    df_veiculos = db.get_data("SELECT * FROM veiculos")
-    col1.metric("Frota Total", len(df_veiculos))
-    # Gráficos e tabelas
-    st.dataframe(df_veiculos)
-
-def render_cadastro():
-    st.title("📝 Cadastro de Ativos")
-    # Formulario completo com edição e exclusão
-    with st.form("cad_veiculo"):
-        placa = st.text_input("Placa")
+    df = pd.read_sql("SELECT * FROM veiculos", get_db())
+    if not df.empty:
+        st.metric("Frota Ativa", len(df))
+        st.dataframe(df)
+    
+# --- CADASTRO ---
+elif menu == "Cadastro":
+    st.title("📝 Gestão de Veículos")
+    with st.form("cad_veic"):
+        placa = st.text_input("Placa").upper()
         modelo = st.text_input("Modelo")
+        km = st.number_input("KM Atual", 0)
+        crlv = st.text_input("CRLV")
         if st.form_submit_button("Salvar"):
-            db.execute_query("INSERT INTO veiculos (placa, modelo) VALUES (?,?)", (placa, modelo))
-            st.success("Veículo Cadastrado!")
+            conn = get_db()
+            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", (placa, modelo, km, 10000, crlv))
+            conn.commit()
+            conn.execute("INSERT INTO logs (usuario, acao, tabela) VALUES (?,?,?)", (st.session_state.user['login'], f"Cadastrou {placa}", "veiculos"))
+            conn.commit()
+            conn.close()
+            st.success("Veículo salvo!")
 
-# --- 4. NAVEGAÇÃO PRINCIPAL ---
-st.sidebar.title(f"Olá, {st.session_state.user['login']}")
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro", "Manutenção", "Checklist", "Abastecimentos", "Multas", "Motoristas"])
+# --- MANUTENÇÃO (OS) ---
+elif menu == "Manutenção":
+    st.title("🛠️ Módulo de Manutenção (OS)")
+    placas = pd.read_sql("SELECT placa FROM veiculos", get_db())['placa'].tolist()
+    with st.form("os_form"):
+        placa = st.selectbox("Veículo", placas)
+        servico = st.text_input("Serviço")
+        custo = st.number_input("Custo Estimado")
+        if st.form_submit_button("Abrir OS"):
+            conn = get_db()
+            conn.execute("INSERT INTO manutencao (placa, servico, custo, status) VALUES (?,?,?,?)", (placa, servico, custo, "Pendente"))
+            conn.commit()
+            conn.close()
+            st.success("OS Aberta para aprovação!")
 
-if menu == "Dashboard": render_dashboard()
-elif menu == "Cadastro": render_cadastro()
-# ... outros módulos seguem a mesma lógica ...
+# --- AUDITORIA ---
+elif menu == "Auditoria":
+    st.title("📜 Logs do Sistema")
+    df_logs = pd.read_sql("SELECT * FROM logs ORDER BY data_hora DESC", get_db())
+    st.dataframe(df_logs)
