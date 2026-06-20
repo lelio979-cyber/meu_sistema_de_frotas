@@ -12,6 +12,16 @@ def setup():
     conn = get_db()
     conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km INTEGER)")
     conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL)")
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(veiculos)")
+    cols = [c[1] for c in cursor.fetchall()]
+    
+    if 'ano' not in cols: conn.execute("ALTER TABLE veiculos ADD COLUMN ano INTEGER")
+    if 'renavam' not in cols: conn.execute("ALTER TABLE veiculos ADD COLUMN renavam TEXT")
+    if 'seguro' not in cols: conn.execute("ALTER TABLE veiculos ADD COLUMN seguro TEXT")
+    
+    conn.commit()
+    conn.close()
     # Nova tabela de combustíveis
     conn.execute("CREATE TABLE IF NOT EXISTS combustivel (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, litros REAL, km_rodado REAL)")
     conn.commit()
