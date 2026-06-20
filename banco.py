@@ -6,13 +6,18 @@ def get_connection():
 
 def init_db():
     conn = get_connection()
+    # Tabela de Veículos
+    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT)")
+    # Tabela de Usuários (Nova)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS veiculos (
-            placa TEXT PRIMARY KEY, 
-            modelo TEXT,
-            foto TEXT,
-            doc TEXT
+        CREATE TABLE IF NOT EXISTS usuarios (
+            login TEXT PRIMARY KEY, 
+            senha TEXT, 
+            perfil TEXT
         )
     """)
+    # Usuário padrão para teste
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('user', '123', 'operador')")
     conn.commit()
     conn.close()
