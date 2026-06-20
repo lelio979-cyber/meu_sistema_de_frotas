@@ -176,7 +176,31 @@ if menu == "🚗 Veículos":
     st.dataframe(df_v, use_container_width=True, hide_index=True)
 
 # ==============================================================================
-# --- MÓDULO: MOTORISTAS ---
+# ==============================================================================
+# --- MÓDULO: MOTORISTAS (CORRIGIDO) ---
 # ==============================================================================
 elif menu == "👤 Motoristas":
-    st.title("👤 Cadastro de
+    st.title("👤 Cadastro de Condutores")
+    
+    with st.form("f_motorista_limpo"):
+        nome = st.text_input("Nome Completo do Motorista").strip()
+        cnh = st.text_input("Número da CNH")
+        venc = st.text_input("Vencimento da CNH (AAAA-MM-DD)")
+        
+        if st.form_submit_button("Salvar Registro"):
+            if perfil_usuario == "Visualização":
+                st.error("❌ Acesso Negado: Seu perfil não possui permissão de gravação.")
+            elif not nome or not cnh:
+                st.error("❌ Nome e CNH são campos obrigatórios.")
+            else:
+                try:
+                    conn.cursor().execute("INSERT INTO motoristas (nome, cnh_numero, cnh_vencimento) VALUES (?, ?, ?)", (nome, cnh, venc))
+                    conn.commit()
+                    st.success("🎉 Motorista cadastrado com sucesso!")
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error("❌ Esse motorista ou documento já existe.")
+
+    st.markdown("---")
+    df_m = pd.read_sql_query("SELECT nome as [Nome], cnh_numero as [CNH], cnh_vencimento as [Vencimento CNH] FROM motoristas", conn)
+    st.dataframe(df_m, use_container_width=True, hide_index=True)
