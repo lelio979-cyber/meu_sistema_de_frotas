@@ -57,3 +57,29 @@ def gestao_frota():
 menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Frota"])
 if menu == "Dashboard": dashboard()
 else: gestao_frota()
+
+
+# --- MÓDULO DE APONTAMENTO RÁPIDO ---
+def apontar_km():
+    st.title("⏱️ Apontamento de KM")
+    conn = sqlite3.connect(DB_NAME)
+    veiculos = pd.read_sql("SELECT placa, km_atual FROM veiculos", conn)
+    conn.close()
+    
+    if not veiculos.empty:
+        with st.form("form_km"):
+            placa = st.selectbox("Selecione o Veículo", veiculos['placa'])
+            novo_km = st.number_input("Informe o KM Atual", min_value=0)
+            
+            if st.form_submit_button("Atualizar KM"):
+                conn = sqlite3.connect(DB_NAME)
+                conn.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km, placa))
+                conn.commit(); conn.close()
+                st.success(f"KM do veículo {placa} atualizado para {novo_km}!")
+                st.rerun()
+    else:
+        st.info("Nenhum veículo disponível para atualização.")
+
+# Atualize seu menu lateral:
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Frota", "Apontar KM"])
+if menu == "Apontar KM": apontar_km()
