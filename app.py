@@ -13,16 +13,21 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
+    # Adicionando a coluna crlv_path caso não exista
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
-        valor_locacao REAL, usuario TEXT, cidade TEXT)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
-    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
+        valor_locacao REAL, usuario TEXT, cidade TEXT, crlv_path TEXT)""")
+    
+    # Check para adicionar a coluna se ela não existir em um banco antigo
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(veiculos)")
+    cols = [info[1] for info in cursor.fetchall()]
+    if 'crlv_path' not in cols:
+        conn.execute("ALTER TABLE veiculos ADD COLUMN crlv_path TEXT")
+    
     conn.commit()
     conn.close()
-
 init_db()
 
 # --- LOGIN ---
