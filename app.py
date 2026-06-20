@@ -1,18 +1,17 @@
-import sqlite3
+import streamlit as st
+import pandas as pd
+import banco # Importa a lógica do banco que criamos acima
 
-def get_connection():
-    conn = sqlite3.connect('frotas_elite.db', check_same_thread=False)
-    return conn
+# Inicializa o banco ao abrir o app
+banco.init_db()
 
-def init_db():
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS veiculos (
-            placa TEXT PRIMARY KEY, 
-            modelo TEXT,
-            foto TEXT,
-            doc TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
+def main():
+    st.title("Sistema de Gestão de Frota")
+    
+    # Aqui você coloca as funções (Cadastro, Edição, etc)
+    # Exemplo simples para testar:
+    if st.button("Verificar Banco"):
+        st.write("Banco de dados pronto para uso!")
+
+if __name__ == "__main__":
+    main()
