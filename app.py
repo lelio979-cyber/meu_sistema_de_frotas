@@ -22,23 +22,33 @@ init_db()
 
 # --- MÓDULOS ---
 def dashboard():
-    st.title("📊 Painel de Controle")
-    try:
-        conn = sqlite3.connect(DB_NAME)
-        df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-        df_os = pd.read_sql("SELECT * FROM os", conn)
-        conn.close()
-        
-        if not df_v.empty:
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total de Ativos", len(df_v))
-            c2.metric("Frota em Operação", len(df_v[df_v['status'] == 'Ativo']))
-            c3.metric("Custo Total OS", f"R$ {df_os['custo'].sum():,.2f}")
-            
-            st.subheader("Histórico de Manutenções")
-            st.dataframe(df_os, use_container_width=True)
-        else:
-            st.info("Nenhum veículo cadastrado.")
+    st.title("📊 Painel de Controle Corporativo")
+    conn = sqlite3.connect(DB_NAME)
+    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
+    df_os = pd.read_sql("SELECT * FROM os", conn)
+    conn.close()
+    
+    st.subheader("Frota Ativa e Prontuários")
+    
+    if not df_v.empty:
+        # Loop para criar um "Prontuário" expansível para cada veículo
+        for _, veic in df_v.iterrows():
+            with st.expander(f"🚛 Placa: {veic['placa']} | Modelo: {veic['modelo']} | Status: {veic['status']}"):
+                col_a, col_b = st.columns(2)
+                col_a.write(f"**Motorista:** {veic['motorista']}")
+                col_a.write(f"**KM Atual:** {veic['km_atual']}")
+                
+                # Filtrar OS específicas desta placa
+                historico = df_os[df_os['placa'] == veic['placa']]
+                
+                if not historico.empty:
+                    col_b.write("**Histórico de Manutenções:**")
+                    col_b.dataframe(historico[['data', 'servico', 'custo']], use_container_width=True)
+                    st.write(f"**Custo Acumulado:** R$ {historico['custo'].sum():,.2f}")
+                else:
+                    col_b.info("Nenhuma manutenção registrada para este veículo.")
+    else:
+        st.info("Nenhum veículo cadastrado.")
     except Exception as e:
         st.error(f"Erro ao carregar dados: {e}")
 
