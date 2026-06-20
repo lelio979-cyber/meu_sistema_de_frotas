@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-# --- CONEXÃO E ESTRUTURA ATUALIZADA ---
+# --- CONEXÃO E ESTRUTURA ---
 def init_db():
     conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
     conn.execute("""
@@ -43,21 +43,22 @@ with aba1:
             conn.commit()
             st.rerun()
 
-    # --- LISTAGEM COM ALERTAS DE PRAZO ---
     st.subheader("Veículos Ativos")
     df = pd.read_sql("SELECT * FROM frota", conn)
     
     for _, row in df.iterrows():
         c1, c2, c3 = st.columns([3, 2, 1])
+        
+        # Formatação
         rev_formatada = pd.to_datetime(row['data_revisao']).strftime('%d/%m/%Y')
         ipva_formatada = pd.to_datetime(row['data_ipva']).strftime('%d/%m/%Y')
+        
         c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")
         
-        # Alerta de Revisão
-        if datetime.strptime(row['data_revisao'], '%Y-%m-%d') < datetime.now():
+        # Validação de data (usando string para converter)
+        if row['data_revisao'] < datetime.now().strftime('%Y-%m-%d'):
             c2.error("⚠️ Revisão Atrasada!")
             
-        # Botão de Excluir
         if c3.button("Excluir", key=f"del_{row['id']}"):
             conn.execute("DELETE FROM frota WHERE id=?", (row['id'],))
             conn.commit()
