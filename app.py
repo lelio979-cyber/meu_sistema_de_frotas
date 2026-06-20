@@ -6,6 +6,7 @@ from datetime import datetime
 # --- CONEXÃO E ESTRUTURA ---
 def init_db():
     conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
+    # Esta instrução cria a tabela com as 5 colunas agora
     conn.execute("""
         CREATE TABLE IF NOT EXISTS frota (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,13 +50,11 @@ with aba1:
     for _, row in df.iterrows():
         c1, c2, c3 = st.columns([3, 2, 1])
         
-        # Formatação
         rev_formatada = pd.to_datetime(row['data_revisao']).strftime('%d/%m/%Y')
         ipva_formatada = pd.to_datetime(row['data_ipva']).strftime('%d/%m/%Y')
         
         c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")
         
-        # Validação de data (usando string para converter)
         if row['data_revisao'] < datetime.now().strftime('%Y-%m-%d'):
             c2.error("⚠️ Revisão Atrasada!")
             
