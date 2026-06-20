@@ -3,103 +3,77 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURAÇÃO E BANCO ---
+# --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="SGF-Fleet Elite", layout="wide")
 
 def get_db(): return sqlite3.connect("sgf_fleet_elite.db")
 
-def registrar_log(usuario, acao, tabela):
-    conn = get_db()
-    conn.execute("INSERT INTO logs (usuario, acao, tabela) VALUES (?,?,?)", (usuario, acao, tabela))
-    conn.commit()
-    conn.close()
-
 def setup_db():
     conn = get_db()
-    # Tabelas Core
-    conn.execute("CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, permissao TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER, limite_revisao INTEGER, crlv TEXT)")
-    conn.execute("CREATE TABLE IF NOT EXISTS manutencao (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL, status TEXT, aprovado BOOLEAN DEFAULT 0)")
-    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT, acao TEXT, tabela TEXT, data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-    
-    # Criar admin padrão se não existir
-    try:
-        conn.execute("INSERT INTO usuarios VALUES ('admin', 'admin', 'admin')")
-    except: pass
+    # Tabelas principais
+    conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS motoristas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnh TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, motorista_id INTEGER, codigo TEXT, valor REAL)")
+    conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY AUTOINCREMENT, usuario TEXT, acao TEXT, data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
     conn.commit()
     conn.close()
 
 setup_db()
 
 # --- AUTENTICAÇÃO ---
-if "user" not in st.session_state: st.session_state.user = None
+if "user" not in st.session_state: st.session_state.user = {"login": "admin", "perm": "admin"}
 
-if not st.session_state.user:
-    st.title("🚛 SGF-Fleet Elite - Login")
-    login_in = st.text_input("Usuário")
-    senha_in = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        st.session_state.user = {"login": login_in, "perm": "admin"}
-        st.rerun()
-    st.stop()
-
-# --- NAVEGAÇÃO E MÓDULOS ---
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro", "Manutenção", "Auditoria"])
+# --- NAVEGAÇÃO ---
+menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro Veículos", "Motoristas", "Multas"])
 
 if menu == "Dashboard":
-    st.title("📊 Dashboard Executivo")
-    df = pd.read_sql("SELECT * FROM veiculos", get_db())
-    if not df.empty:
-        col1, col2 = st.columns(2)
-        col1.metric("Frota Total", len(df))
-        st.dataframe(df)
+    st.title("📊 Painel de Controle")
+    col1, col2 = st.columns(2)
+    col1.metric("Veículos Cadastrados", len(pd.read_sql("SELECT * FROM veiculos", get_db())))
+    col2.metric("Motoristas Ativos", len(pd.read_sql("SELECT * FROM motoristas", get_db())))
 
-elif menu == "Cadastro":
-    st.title("📝 Gestão de Veículos")
+elif menu == "Cadastro Veículos":
+    st.title("📝 Cadastro de Veículos")
     with st.form("cad_veic"):
         placa = st.text_input("Placa").upper()
         modelo = st.text_input("Modelo")
-        km = st.number_input("KM Atual", 0)
-        crlv = st.text_input("CRLV")
-        if st.form_submit_button("Salvar Veículo"):
-            conn = get_db()
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", (placa, modelo, km, 10000, crlv))
-            conn.commit()
-            registrar_log(st.session_state.user['login'], f"Cadastrou/Editou {placa}", "veiculos")
-            conn.close()
+        if st.form_submit_button("Salvar"):
+            get_db().execute("INSERT OR REPLACE INTO veiculos VALUES (?,?)", (placa, modelo))
             st.success("Veículo salvo!")
 
-elif menu == "Manutenção":
-    st.title("🛠️ Fluxo de Aprovação de OS")
+elif menu == "Motoristas":
+    st.title("👤 Cadastro de Motoristas")
+    with st.form("cad_mot"):
+        nome = st.text_input("Nome do Motorista")
+        cnh = st.text_input("Número da CNH")
+        if st.form_submit_button("Cadastrar Motorista"):
+            get_db().execute("INSERT INTO motoristas (nome, cnh) VALUES (?,?)", (nome, cnh))
+            st.success("Motorista cadastrado!")
+
+elif menu == "Multas":
+    st.title("🚦 Módulo de Multas")
     
-    # Abertura
-    with st.expander("➕ Nova OS"):
-        with st.form("os_form"):
-            placa = st.selectbox("Veículo", pd.read_sql("SELECT placa FROM veiculos", get_db())['placa'])
-            servico = st.text_input("Serviço")
-            custo = st.number_input("Custo R$", min_value=0.0)
-            if st.form_submit_button("Solicitar Aprovação"):
+    # Base de referência (Pode ser expandida ou movida para um JSON externo)
+    ctb_ref = {"50100": 130.16, "50291": 293.47, "74550": 130.16}
+    
+    conn = get_db()
+    placas = pd.read_sql("SELECT placa FROM veiculos", conn)['placa'].tolist()
+    motoristas = pd.read_sql("SELECT id, nome FROM motoristas", conn)
+    conn.close()
+    
+    with st.form("form_multa"):
+        placa = st.selectbox("Veículo", placas)
+        motorista_id = st.selectbox("Motorista", motoristas['nome'])
+        codigo = st.text_input("Código da Infração (Ex: 50100)")
+        
+        if st.form_submit_button("Registrar Multa"):
+            valor = ctb_ref.get(codigo, 0.0)
+            if valor > 0:
                 conn = get_db()
-                conn.execute("INSERT INTO manutencao (placa, servico, custo, status, aprovado) VALUES (?,?,?,?,?)", (placa, servico, custo, "Pendente", 0))
+                conn.execute("INSERT INTO multas (placa, motorista_id, codigo, valor) VALUES (?,?,?,?)", 
+                             (placa, motorista_id, codigo, valor))
                 conn.commit()
-                registrar_log(st.session_state.user['login'], f"Solicitou OS para {placa}", "manutencao")
                 conn.close()
-                st.success("OS enviada!")
-
-    # Aprovação (Simulado como Admin)
-    st.subheader("📋 Pendentes de Aprovação")
-    pendentes = pd.read_sql("SELECT * FROM manutencao WHERE aprovado = 0", get_db())
-    for i, row in pendentes.iterrows():
-        c1, c2 = st.columns([3, 1])
-        c1.write(f"Veículo: {row['placa']} | Custo: R$ {row['custo']}")
-        if c2.button("✅ Aprovar", key=f"btn_{row['id']}"):
-            conn = get_db()
-            conn.execute("UPDATE manutencao SET aprovado = 1, status = 'Concluído' WHERE id = ?", (row['id'],))
-            conn.commit()
-            registrar_log(st.session_state.user['login'], f"Aprovou OS #{row['id']}", "manutencao")
-            conn.close()
-            st.rerun()
-
-elif menu == "Auditoria":
-    st.title("📜 Auditoria de Sistema")
-    st.dataframe(pd.read_sql("SELECT * FROM logs ORDER BY data_hora DESC", get_db()))
+                st.success(f"Multa registrada com sucesso. Valor: R$ {valor}")
+            else:
+                st.error("Código de infração inválido.")
