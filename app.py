@@ -13,24 +13,20 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # Tabela Veículos com todos os campos solicitados
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
-        data_devolucao DATE, valor_locacao REAL, usuario TEXT, 
+        valor_locacao REAL, usuario TEXT, 
         cidade TEXT, doc_path TEXT, foto_path TEXT)""")
-    # Tabela Despesas
     conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
         id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
-    # Tabela Usuários
-    conn.execute("""CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)""")
     conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
     conn.commit()
     conn.close()
 
 init_db()
 
-# --- LOGIN (Funcionalidade mantida) ---
+# --- LOGIN ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
 if not st.session_state['logado']:
     st.title("🔐 Login SGF-Pro")
@@ -43,51 +39,36 @@ if not st.session_state['logado']:
             st.session_state['logado'] = True; st.session_state['perfil'] = perfil[0]; st.rerun()
     st.stop()
 
-# --- DASHBOARD (Com métricas e gráficos) ---
+# --- DASHBOARD COM EDIÇÃO ---
 def dashboard():
     st.title("📊 Painel Estratégico de Frota")
     conn = get_conn()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_d = pd.read_sql("SELECT * FROM despesas", conn)
-    conn.close()
     
-    # 1. LINHA DE KPIs (Indicadores Rápidos)
+    # KPIs
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Custo Total", f"R$ {df_d['valor'].sum():,.2f}")
-    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}", delta=f"{len(df_v)} Total")
-    c3.metric("Ticket Médio/Veíc", f"R$ {df_d['valor'].sum()/len(df_v) if not df_v.empty else 0:,.2f}")
-    c4.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
+    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}")
+    c3.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
+    c4.metric("Total de Ativos", len(df_v))
     
     st.markdown("---")
     
-    # 2. SEÇÃO DE ANÁLISES (Layout Grid)
-    col_left, col_right = st.columns([2, 1])
+    # Tabela Editável
+    st.subheader("Gerenciamento de Ativos")
+    edited_df = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
     
-    with col_left:
-        st.subheader("Tendência de Custos por Categoria")
-        if not df_d.empty:
-            fig = px.bar(df_d, x='data', y='valor', color='categoria', barmode='group')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Aguardando lançamentos de despesas.")
-
-    with col_right:
-        st.subheader("Status dos Ativos")
-        if not df_v.empty:
-            fig = px.pie(df_v, names='status', hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig, use_container_width=True)
-        
-    # 3. MESA DE APOIO (Alertas e Detalhes)
-    st.subheader("Alertas de Operação e Logística")
-    if not df_v.empty:
-        # Filtra veículos com km alto ou vencimento (exemplo lógico)
-        st.dataframe(df_v[['placa', 'modelo', 'cidade', 'status', 'data_devolucao']], use_container_width=True)
+    if st.button("Salvar Alterações na Tabela"):
+        # Lógica para sobrescrever as mudanças
+        edited_df.to_sql('veiculos', conn, if_exists='replace', index=False)
+        st.success("Dados atualizados!")
     
-    #
+    conn.close()
 
-# --- CADASTRO (Com todos os campos) ---
+# --- CADASTRO ---
 def cadastro():
-    st.title("➕ Cadastro Detalhado de Veículo")
+    st.title("➕ Cadastro de Veículo")
     with st.form("form_completo", clear_on_submit=True):
         c1, c2 = st.columns(2)
         placa = c1.text_input("Placa").upper()
@@ -97,40 +78,19 @@ def cadastro():
         comb = c1.selectbox("Combustível", ["Gasolina", "Etanol", "Diesel S10", "Flex"])
         km = c2.number_input("KM Inicial", 0)
         dt_aq = c1.date_input("Data de Aquisição")
-        dt_dev = c2.date_input("Data de Devolução")
-        valor = c1.number_input("Valor Locação (R$)", 0.0)
-        user = c2.text_input("Usuário")
-        cidade = c1.text_input("Cidade")
-        foto = c1.file_uploader("Foto", type=['jpg', 'png'])
-        doc = c2.file_uploader("Documento (PDF)", type=['pdf'])
+        valor = c2.number_input("Valor Locação (R$)", 0.0)
+        user = c1.text_input("Usuário")
+        cidade = c2.text_input("Cidade")
         
         if st.form_submit_button("Salvar Ativo"):
             conn = get_conn()
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (placa, marca, modelo, status, comb, km, dt_aq, dt_dev, valor, user, cidade, str(doc.name) if doc else None, str(foto.name) if foto else None))
+            conn.execute("INSERT OR REPLACE INTO veiculos (placa, marca, modelo, status, combustivel, km_inicial, data_aquisicao, valor_locacao, usuario, cidade) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         (placa, marca, modelo, status, comb, km, dt_aq, valor, user, cidade))
             conn.commit()
             conn.close()
             st.success("Ativo registrado!")
 
-# --- Lançar Custo ---
-def lancar_custo():
-    st.title("💰 Lançar Custo")
-    with st.form("form_custo"):
-        data = st.date_input("Data")
-        cat = st.selectbox("Categoria", ["Combustível", "Manutenção", "Multas", "Outros"])
-        valor = st.number_input("Valor (R$)", min_value=0.0)
-        if st.form_submit_button("Lançar"):
-            conn = get_conn()
-            conn.execute("INSERT INTO despesas (data, categoria, valor) VALUES (?,?,?)", (data, cat, valor))
-            conn.commit()
-            conn.close()
-            st.success("Despesa salva!")
-
-# --- NAVEGAÇÃO (Barra lateral) ---
-st.sidebar.title(f"Olá, {st.session_state['perfil']}")
+# --- NAVEGAÇÃO ---
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
-if st.sidebar.button("Sair"): st.session_state['logado'] = False; st.rerun()
-
 if menu == "Dashboard": dashboard()
 elif menu == "Cadastro": cadastro()
-elif menu == "Lançar Custo": lancar_custo()
