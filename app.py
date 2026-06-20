@@ -631,23 +631,171 @@ elif menu == "📝 Checklist de Campo":
                     except Exception as e:
                         st.error(f"❌ Erro operacional de gravação: {e}")
             
-# --- MÓDULO: ABASTECIMENTO ---
+# --- MÓDULO: ABASTECIMENTO (MANUAL + IMPORTAÇÃO EM LOTE) ---
 elif menu == "⛽ Abastecimento":
-    st.title("⛽ Lançamento de Abastecimento Financeiro")
-    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
-    if not df_l.empty:
-        with st.form("f_abs", clear_on_submit=True):
-            pl = st.selectbox("Veículo", df_l['placa'])
-            val = st.number_input("Valor Pago (R$)", min_value=0.0, step=10.0)
-            if st.form_submit_button("Lançar Nota"):
-                if val > 0:
-                    conn.cursor().execute(
-                        "INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Combustível', ?, ?)", 
-                        (pl, val, datetime.now().strftime("%Y-%m-%d"))
-                    )
-                    conn.commit(); st.success("Registrado!"); st.rerun()
-    else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+    st.title("⛽ Central de Abastecimento e Auditoria")
+    st.markdown("Registre cupons de combustível manualmente ou importe dados em lote via planilha.")
+    
+    df_veic_ab = pd.read_sql_query("SELECT placa, km_atual, modelo, combustivel FROM veiculos", conn)
+    
+    if df_veic_ab.empty:
+        st.warning("⚠️ Cadastre um veículo no sistema antes de prosseguir.")
+    else:
+        # Criação de Abas para separar Individual de Lote
+        tab_manual, tab_lote = st.tabs(["📝 Lançamento Individual", "📁 Importação em Lote (Excel/CSV)"])
+        
+        # --- ABA 1: LANÇAMENTO MANUAL (CÓDIGO ANTERIOR BLINDADO) ---
+        with tab_manual:
+            with st.form("f_abastecimento_blindado"):
+                st.markdown("##### 📦 1. Identificação do Lançamento")
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    placa_sel = st.selectbox("Selecione o Veículo", df_veic_ab['placa'], key="sb_manual")
+                    km_base = int(df_veic_ab[df_veic_ab['placa'] == placa_sel]['km_atual'].values[0])
+                    modelo_sel = df_veic_ab[df_veic_ab['placa'] == placa_sel]['modelo'].values[0]
+                    comb_padrao = df_veic_ab[df_veic_ab['placa'] == placa_sel]['combustivel'].values[0]
+                with c2:
+                    tipo_comb = st.selectbox("Combustível Abastecido", ["Gasolina", "Etanol", "Diesel", "Diesel S10", "GNV", "Eletricidade"])
+                with c3:
+                    posto_nome = st.text_input("Nome/Rede do Posto")
+                    
+                st.info(f"📍 **Último KM:** {km_base:,} KM | Padrão: **{comb_padrao}**".replace(",", "."))
+                
+                st.markdown("---")
+                st.markdown("##### 💵 2. Valores Fiscais e Odômetro")
+                c4, c5, c6 = st.columns(3)
+                with c4:
+                    km_bomba = st.number_input("Odômetro na Bomba (KM)", min_value=km_base, value=km_base, step=1)
+                with c5:
+                    litros = st.number_input("Quantidade de Litros", min_value=0.0, value=0.0, step=1.0, format="%.2f")
+                with c6:
+                    valor_total = st.number_input("Valor Total Pago (R$)", min_value=0.0, value=0.0, step=10.0, format="%.2f")
+                    
+                st.markdown("---")
+                st.markdown("##### 🧾 3. Comprovação Jurídica")
+                cupom_fiscal = st.text_input("Número do Cupom Fiscal / COO")
+                
+                # Cálculos em tempo real
+                preco_litro_calculado = valor_total / litros if litros > 0 else 0.0
+                if preco_litro_calculado > 0:
+                    st.metric("💵 Preço por Litro Calculado", f"R$ {preco_litro_calculado:.3f}")
+                
+                if st.form_submit_button("🚀 Transmitir Abastecimento Manual"):
+                    if km_bomba < km_base or litros <= 0 or valor_total <= 0 or not cupom_fiscal:
+                        st.error("❌ Verifique os dados. KM inconsistente, campos zerados ou sem Cupom Fiscal.")
+                    else:
+                        hoje_str = datetime.now().strftime("%Y-%m-%d")
+                        agora_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)",
+                                            (placa_sel, f"Combustível ({tipo_comb}) - Cupom: {cupom_fiscal}", valor_total, hoje_str))
+                        conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km_bomba, placa_sel))
+                        conn.cursor().execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data, litros_abastecidos) VALUES (?, 'Registro de Abastecimento', ?, 'Cheio', ?, 'Regular', ?, ?, ?)",
+                                            (placa_sel, km_bomba, f"Posto: {posto_nome} | Cupom: {cupom_fiscal} | R$ {valor_total}", st.session_state['u_log'], agora_str, litros))
+                        conn.commit()
+                        st.success("🎉 Abastecimento individual lançado com sucesso!")
+                        st.rerun()
 
+        # --- ABA 2: IMPORTAÇÃO EM LOTE VIA PLANILHA ---
+        with tab_lote:
+            st.markdown("### 📁 Importação de Abastecimentos em Massa")
+            st.markdown("""
+            Para alimentar o sistema em lote, faça o upload de um arquivo **.csv** ou **.xlsx** contendo as seguintes colunas exatas:
+            `placa`, `tipo_combustivel`, `posto`, `km_bomba`, `litros`, `valor_total`, `cupom_fiscal`
+            """)
+            
+            # Modelo de exemplo para o gestor baixar se tiver dúvidas
+            exemplo_data = {
+                "placa": ["ABC1D23", "XYZ9H87"],
+                "tipo_combustivel": ["Gasolina", "Diesel S10"],
+                "posto": ["Posto Ipiranga", "Posto Shell"],
+                "km_bomba": [15200, 84350],
+                "litros": [45.50, 60.00],
+                "valor_total": [260.00, 360.00],
+                "cupom_fiscal": ["10293", "58473"]
+            }
+            df_exemplo = pd.DataFrame(exemplo_data)
+            st.download_button("📥 Baixar Planilha Modelo (Exemplo)", df_exemplo.to_csv(index=False).encode('utf-8'), "modelo_abastecimento.csv", "text/csv")
+            
+            st.markdown("---")
+            arquivo_lote = st.file_uploader("Selecione o arquivo de abastecimentos (CSV ou Excel)", type=["csv", "xlsx"])
+            
+            if arquivo_lote is not None:
+                try:
+                    # Lê o arquivo dependendo da extensão
+                    if arquivo_lote.name.endswith('.csv'):
+                        df_importado = pd.read_csv(arquivo_lote)
+                    else:
+                        df_importado = pd.read_excel(arquivo_lote)
+                        
+                    st.markdown("##### 👀 Pré-visualização dos Dados Carregados:")
+                    st.dataframe(df_importado, use_container_width=True)
+                    
+                    if st.button("🧱 Processar e Gravar Planilha no Banco"):
+                        linhas_processadas = 0
+                        erros = []
+                        hoje_str = datetime.now().strftime("%Y-%m-%d")
+                        agora_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+                        
+                        for index, row in df_importado.iterrows():
+                            placa = str(row['placa']).strip().upper()
+                            tipo_comb = str(row['tipo_combustivel']).strip()
+                            posto = str(row['posto']).strip()
+                            km_b = int(row['km_bomba'])
+                            litros_i = float(row['litros'])
+                            v_total = float(row['valor_total'])
+                            cupom = str(row['cupom_fiscal']).strip()
+                            
+                            # Validação: O veículo existe?
+                            chk_v = df_veic_ab[df_veic_ab['placa'] == placa]
+                            if chk_v.empty:
+                                erros.append(f"Linha {index+1}: Veículo com placa {placa} não cadastrado.")
+                                continue
+                                
+                            km_atual_base = int(chk_v['km_atual'].values[0])
+                            # Validação: O KM é retroativo?
+                            if km_b < km_atual_base:
+                                erros.append(f"Linha {index+1} ({placa}): KM informado ({km_b}) é menor que o KM atual do sistema ({km_atual_base}).")
+                                continue
+                            
+                            # Gravação da Linha Válida
+                            # 1. Financeiro
+                            conn.cursor().execute("INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, ?, ?, ?)",
+                                                (placa, f"Importado: Combustível ({tipo_comb}) - Cupom: {cupom}", v_total, hoje_str))
+                            # 2. Atualiza KM do veículo
+                            conn.cursor().execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (km_b, placa))
+                            # 3. Log de Histórico
+                            conn.cursor().execute("INSERT INTO checklists (placa, tipo_movimentacao, km, combustivel, avarias, pneus_estado, operador, data, litros_abastecidos) VALUES (?, 'Registro de Abastecimento', ?, 'Cheio', ?, 'Regular', ?, ?, ?)",
+                                                (placa, km_b, f"Posto: {posto} | Cupom: {cupom} | R$ {v_total} (Carga em Lote)", st.session_state['u_log'], agora_str, litros_i))
+                            
+                            linhas_processadas += 1
+                        
+                        conn.commit()
+                        
+                        if linhas_processadas > 0:
+                            st.success(f"🎉 Sucesso! {linhas_processadas} abastecimentos foram processados e integrados ao financeiro/frota.")
+                        if erros:
+                            st.error("⚠️ Algumas linhas continham inconsistências e foram ignoradas:")
+                            for err in erros:
+                                st.write(err)
+                                
+                        st.rerun()
+                        
+                except Exception as e:
+                    st.error(f"❌ Erro ao ler o arquivo. Certifique-se de que os nomes das colunas estão exatamente iguais ao modelo. Erro: {e}")
+
+        # --- HISTÓRICO GERAL ABAIXO DAS ABAS ---
+        st.markdown("---")
+        st.subheader(f"📋 Últimos Abastecimentos Auditados do Veículo Selecionado")
+        placa_visualizar = st.selectbox("Visualizar histórico do veículo:", df_veic_ab['placa'], key="sb_historico")
+        df_ver_ab = pd.read_sql_query(
+            "SELECT data as [Data/Hora], km as [KM na Bomba], combustivel as [Nível], avarias as [Detalhes/Posto] "
+            f"FROM checklists WHERE placa='{placa_visualizar}' AND tipo_movimentacao='Registro de Abastecimento' ORDER BY id DESC LIMIT 5", conn
+        )
+        if not df_ver_ab.empty:
+            st.dataframe(df_ver_ab, use_container_width=True, hide_index=True)
+        else:
+            st.info("Nenhum cupom de combustível registrado recentemente.")
 # --- MÓDULO: ORDENS DE SERVIÇO ---
 elif menu == "🛠️ Ordens de Serviço":
     st.title("🛠️ Central de Engenharia de Manutenção & O.S.")
