@@ -5,38 +5,39 @@ import banco  # Importa o arquivo banco.py que criamos antes
 st.set_page_config(page_title="SGF-Pro Login", layout="centered")
 
 def tela_login():
-    st.title("🔐 Acesso ao Sistema")
-    st.write("Por favor, entre com suas credenciais.")
-    
+    st.title("🔐 Acesso Restrito")
     usuario = st.text_input("Usuário")
     senha = st.text_input("Senha", type="password")
     
     if st.button("Entrar"):
-        # Aqui você pode colocar uma lógica mais segura futuramente
-        if usuario == "admin" and senha == "admin":
+        # Consulta no banco de dados para verificar credenciais e perfil
+        conn = banco.get_connection()
+        user = conn.execute("SELECT perfil FROM usuarios WHERE login=? AND senha=?", (usuario, senha)).fetchone()
+        conn.close()
+        
+        if user:
             st.session_state['logado'] = True
-            st.rerun() # Recarrega a página para liberar o sistema
+            st.session_state['perfil'] = user[0] # Armazena 'admin' ou 'operador'
+            st.rerun()
         else:
-            st.error("Usuário ou senha inválidos!")
+            st.error("Credenciais inválidas!")
 
 def main():
-    # Inicializa o estado de login
     if 'logado' not in st.session_state:
         st.session_state['logado'] = False
 
-    # Se não estiver logado, mostra o login
     if not st.session_state['logado']:
         tela_login()
     else:
-        # SE ESTIVER LOGADO:
-        st.sidebar.title("Navegação SGF-Pro")
-        if st.sidebar.button("Sair"):
-            st.session_state['logado'] = False
-            st.rerun()
-            
-        st.title("Bem-vindo ao SGF-Pro")
-        st.write("Sistema desbloqueado com sucesso.")
-
-if __name__ == "__main__":
-    banco.init_db() # Garante que o banco esteja pronto
-    main()
+        # MENU RESTRITO POR PERFIL
+        perfil = st.session_state['perfil']
+        
+        st.sidebar.title(f"Olá, {perfil.capitalize()}")
+        menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro"])
+        
+        if menu == "Cadastro":
+            if perfil == "admin":
+                st.write("Bem-vindo ao formulário de cadastro (Apenas Admins).")
+                # Aqui você colocaria o código de cadastro
+            else:
+                st.error("Você não tem permissão para acessar esta área.")
