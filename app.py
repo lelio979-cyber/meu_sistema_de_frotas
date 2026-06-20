@@ -43,8 +43,9 @@ elif menu == "Gestão de Ativos":
         km_rev = st.number_input("KM Revisão", min_value=0)
         if st.form_submit_button("Registrar"):
             conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", (placa, modelo, motorista, km, km_rev))
-            conn.commit(); conn.close(); st.success("Registrado!"); st.rerun()
+            # SUBSTITUA A LINHA DO ERRO POR ESTA:
+conn.execute("""INSERT OR REPLACE INTO veiculos (placa, modelo, motorista, km_atual, km_revisao) 
+                VALUES (?, ?, ?, ?, ?)""", (placa, modelo, motorista, km, km_rev))            conn.commit(); conn.close(); st.success("Registrado!"); st.rerun()
 
 elif menu == "Multas":
     st.title("⚠️ Registro de Multas")
