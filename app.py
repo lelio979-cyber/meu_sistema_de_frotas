@@ -110,3 +110,15 @@ elif menu == "Dashboard":
     conn.close()
     st.write("### Consumo de Combustível")
     st.dataframe(df_comb)
+
+if "logado" not in st.session_state:
+    st.session_state["logado"] = False
+
+if not st.session_state["logado"]:
+    senha = st.text_input("Senha", type="password")
+    if st.button("Entrar"):
+        if senha == "1234": # Troque pela sua senha
+            st.session_state["logado"] = True
+            st.rerun()
+else:
+    # AQUI VOCÊ COLOCA O SEU CÓDIGO DO SISTEMA
