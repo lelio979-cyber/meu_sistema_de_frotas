@@ -2,53 +2,49 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
+# Configuração da página
 st.set_page_config(page_title="Gestão de Frota Pro", layout="wide")
 
+# 1. FUNÇÃO DE CONEXÃO SEGURA
 def get_db():
     conn = sqlite3.connect("frota.db")
     return conn
 
+# 2. CRIAÇÃO DAS TABELAS (Apenas uma vez)
 def setup():
     conn = get_db()
-    # Tabelas já existentes
     conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km INTEGER)")
-    conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL)")
-    conn.execute("CREATE TABLE IF NOT EXISTS combustivel (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, litros REAL, km_rodado REAL)")
-    # Nova Tabela de Multas
-    conn.execute("CREATE TABLE IF NOT EXISTS multas (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, valor REAL, comprovante TEXT)")
     conn.commit()
     conn.close()
 
 setup()
 
+# 3. INTERFACE
 st.title("🚛 Gestão de Frota")
-menu = st.sidebar.radio("Menu", ["Cadastro", "Manutenção", "Combustível", "Multas", "Dashboard"])
 
-# [Inclua aqui a lógica anterior de Cadastro, Manutenção e Combustível]
+menu = st.sidebar.radio("Menu", ["Cadastro", "Dashboard"])
 
-if menu == "Multas":
-    st.subheader("Registrar Multa")
-    conn = get_db()
-    veiculos = pd.read_sql("SELECT placa FROM veiculos", conn)
-    conn.close()
-    
-    if not veiculos.empty:
-        with st.form("form_multa"):
-            placa = st.selectbox("Veículo", veiculos['placa'])
-            valor = st.number_input("Valor da Multa (R$)", 0.0)
-            foto = st.text_input("Link da Foto/Comprovante")
-            if st.form_submit_button("Salvar Multa"):
-                conn = get_db()
-                conn.execute("INSERT INTO multas (placa, valor, comprovante) VALUES (?, ?, ?)", (placa, valor, foto))
+if menu == "Cadastro":
+    st.subheader("Novo Veículo")
+    with st.form("form_cad"):
+        placa = st.text_input("Placa").upper()
+        modelo = st.text_input("Modelo")
+        km = st.number_input("KM Inicial", 0)
+        submit = st.form_submit_button("Salvar")
+        
+        if submit:
+            conn = get_db()
+            try:
+                conn.execute("INSERT INTO veiculos VALUES (?, ?, ?)", (placa, modelo, km))
                 conn.commit()
-                conn.close()
-                st.success("Multa registrada!")
-    else: st.warning("Cadastre um veículo antes.")
+                st.success("Veículo salvo!")
+            except sqlite3.IntegrityError:
+                st.error("Placa já existe!")
+            conn.close()
 
 elif menu == "Dashboard":
-    st.subheader("Painel Geral")
+    st.subheader("Frota")
     conn = get_db()
-    df_multas = pd.read_sql("SELECT * FROM multas", conn)
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
     conn.close()
-    st.write("### Histórico de Multas")
-    st.dataframe(df_multas)
+    st.dataframe(df)
