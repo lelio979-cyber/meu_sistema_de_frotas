@@ -2,19 +2,23 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# Conexão baseada na versão anterior
 def get_db():
     return sqlite3.connect('frotas_limpo.db', check_same_thread=False)
 
 def init_tables():
     conn = get_db()
-    # Apaga a tabela se ela existir, para garantir que as colunas fiquem certas
-    conn.execute("DROP TABLE IF EXISTS veiculos")
+    # Adicionando campos essenciais para uma gestão profissional
     conn.execute("""
-        CREATE TABLE veiculos (
+        CREATE TABLE IF NOT EXISTS veiculos (
             placa TEXT PRIMARY KEY, 
             modelo TEXT,
-            ano INTEGER
+            marca TEXT,
+            ano INTEGER,
+            chassi TEXT,
+            renavam TEXT,
+            data_aquisicao DATE,
+            km_atual INTEGER,
+            status TEXT
         )
     """)
     conn.commit()
@@ -23,44 +27,42 @@ def init_tables():
 init_tables()
 
 def main():
-    st.title("SGF-Pro V22 | Gestão de Veículos")
+    st.set_page_config(page_title="SGF-Pro Elite", layout="wide")
+    st.title("🚗 Cadastro Técnico de Frota")
     
-    # Navegação
-    menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro de Veículos"])
-    
-    if menu == "Dashboard":
-        st.write("Bem-vindo ao sistema.")
-        
-    elif menu == "Cadastro de Veículos":
-        st.subheader("Cadastrar Novo Veículo")
-        
-        # Formulário Profissional
-        with st.form("form_veiculo", clear_on_submit=True):
-            placa = st.text_input("Placa do Veículo (Ex: ABC-1234)").upper()
+    with st.form("form_veiculo_completo", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            placa = st.text_input("Placa").upper()
+            marca = st.text_input("Marca")
             modelo = st.text_input("Modelo")
-            ano = st.number_input("Ano", min_value=1990, max_value=2030, step=1)
-            
-            submit = st.form_submit_button("Salvar Veículo")
-            
-            if submit:
-                if placa:
-                    conn = get_db()
-                    try:
-                        conn.execute("INSERT INTO veiculos (placa, modelo, ano) VALUES (?, ?, ?)", (placa, modelo, ano))
-                        conn.commit()
-                        st.success(f"Veículo {placa} cadastrado com sucesso!")
-                    except sqlite3.IntegrityError:
-                        st.error("Erro: Esta placa já existe no sistema.")
-                    conn.close()
-                else:
-                    st.warning("A placa é obrigatória.")
+        with col2:
+            ano = st.number_input("Ano Fabricação", 1990, 2030)
+            chassi = st.text_input("Chassi")
+            renavam = st.text_input("Renavam")
+        with col3:
+            data_aq = st.date_input("Data de Aquisição")
+            km = st.number_input("KM Atual", min_value=0)
+            status = st.selectbox("Status", ["Ativo", "Inativo", "Manutenção", "Vendido"])
+        
+        if st.form_submit_button("Salvar Veículo no Banco"):
+            try:
+                conn = get_db()
+                conn.execute("""
+                    INSERT INTO veiculos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (placa, modelo, marca, ano, chassi, renavam, data_aq, km, status))
+                conn.commit()
+                conn.close()
+                st.success("Veículo cadastrado com especificações técnicas!")
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
 
-        # Exibição dos dados
-        st.subheader("Veículos Cadastrados")
-        conn = get_db()
-        df = pd.read_sql("SELECT * FROM veiculos", conn)
-        st.dataframe(df, use_container_width=True)
-        conn.close()
+    # Exibição Técnica
+    st.subheader("Frota Ativa")
+    conn = get_db()
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
+    st.dataframe(df, use_container_width=True)
+    conn.close()
 
 if __name__ == "__main__":
     main()
