@@ -1,66 +1,71 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+from datetime import datetime
 
-# Conecta ao banco
-conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
-
-# Adiciona as colunas com segurança (IF NOT EXISTS)
-cursor = conn.cursor()
-try:
-    cursor.execute("ALTER TABLE frota ADD COLUMN data_revisao TEXT")
-    cursor.execute("ALTER TABLE frota ADD COLUMN data_ipva TEXT")
+# --- CONFIGURAÇÃO DO BANCO ---
+def init_db():
+    conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS frota (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            placa TEXT,
+            modelo TEXT,
+            custo REAL,
+            data_revisao TEXT,
+            data_ipva TEXT
+        )
+    """)
     conn.commit()
-except sqlite3.OperationalError:
-    pass # Colunas já existem, tudo bem!
+    return conn
 
+conn = init_db()
+
+st.set_page_config(page_title="SGF-Fleet Pro", layout="wide")
 st.title("🚛 Gestão de Frotas: Controle de Prazos")
 
-# Formulário atualizado
-with st.form("form", clear_on_submit=True):
-    placa = st.text_input("Placa").upper()
-    modelo = st.text_input("Modelo")
-    custo = st.number_input("Custo", min_value=0.0)
-    data_revisao = st.date_input("Próxima Revisão")
-    data_ipva = st.date_input("Vencimento IPVA")
+# --- FORMULÁRIO DE CADASTRO ---
+with st.form("form_cadastro", clear_on_submit=True):
+    col1, col2, col3 = st.columns(3)
+    placa = col1.text_input("Placa").upper()
+    modelo = col2.text_input("Modelo")
+    custo = col3.number_input("Custo de Manutenção", min_value=0.0)
     
-    if st.form_submit_button("Salvar"):
+    col4, col5 = st.columns(2)
+    data_revisao = col4.date_input("Próxima Revisão")
+    data_ipva = col5.date_input("Vencimento IPVA")
+    
+    if st.form_submit_button("Salvar Veículo"):
         conn.execute("INSERT INTO frota (placa, modelo, custo, data_revisao, data_ipva) VALUES (?, ?, ?, ?, ?)", 
                      (placa, modelo, custo, str(data_revisao), str(data_ipva)))
         conn.commit()
+        st.success("Veículo salvo!")
         st.rerun()
 
-# --- EXIBIÇÃO COM ALERTAS ---
+# --- LISTAGEM E ALERTAS ---
 st.subheader("Veículos Ativos")
 df = pd.read_sql("SELECT * FROM frota", conn)
 
 if not df.empty:
-    # Função para verificar o status
-    def verificar_status(data_str):
-        if not data_str or data_str == "None":
-            return "Indefinido"
-        # Compara a data do banco com a data de hoje (20/06/2026)
-        if data_str < "2026-06-20":
-            return "⚠️ Atrasado"
-        return "✅ Em dia"
+    # Lógica de Alerta
+    hoje = datetime.now().strftime('%Y-%m-%d')
+    
+    # Criar colunas de status
+    df['Status Rev'] = df['data_revisao'].apply(lambda x: "⚠️ ATRAZADO" if x < hoje else "✅ EM DIA")
+    df['Status IPVA'] = df['data_ipva'].apply(lambda x: "⚠️ ATRAZADO" if x < hoje else "✅ EM DIA")
 
-    # Aplica a lógica de status nas colunas
-    df['Status Revisão'] = df['data_revisao'].apply(verificar_status)
-    df['Status IPVA'] = df['data_ipva'].apply(verificar_status)
-
-    # Exibe a tabela com os status
-    st.dataframe(
-        df, 
-        column_config={
-            "status": st.column_config.TextColumn("Status"),
-        },
-        use_container_width=True
-    )
-
-    # Filtro opcional: Mostrar apenas alertas
-    if st.checkbox("Mostrar apenas veículos com alertas"):
-        alertas = df[(df['Status Revisão'] == "⚠️ Atrasado") | (df['Status IPVA'] == "⚠️ Atrasado")]
-        st.warning("Veículos que precisam de atenção imediata:")
-        st.table(alertas)
+    # Filtro de Alertas
+    if st.checkbox("🔍 Filtrar apenas veículos com pendências"):
+        df_alertas = df[(df['Status Rev'] == "⚠️ ATRAZADO") | (df['Status IPVA'] == "⚠️ ATRAZADO")]
+        st.warning("Veículos que precisam de atenção:")
+        st.dataframe(df_alertas, use_container_width=True)
+    else:
+        st.dataframe(df, use_container_width=True)
+        
+    # Botão de Excluir (simples)
+    if st.button("Limpar todos os dados"):
+        conn.execute("DELETE FROM frota")
+        conn.commit()
+        st.rerun()
 else:
     st.info("Nenhum veículo cadastrado.")
