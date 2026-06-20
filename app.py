@@ -22,19 +22,24 @@ if menu == "Dashboard":
     st.write("Sistema operacional e banco de dados conectado.")
     
 elif menu == "Cadastro Veículos":
-    st.title("Cadastro de Veículos")
-    with st.form("cad_form"):
-        placa = st.text_input("Placa")
-        modelo = st.text_input("Modelo")
-        submit = st.form_submit_button("Salvar")
+    st.title("📝 Gestão de Veículos")
+    
+    # Formulário de Cadastro
+    with st.form("cad_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        placa = col1.text_input("Placa").upper()
+        modelo = col2.text_input("Modelo")
+        submit = st.form_submit_button("Salvar Veículo")
+        
         if submit:
-            try:
+            if placa:
+                # O comando INSERT OR REPLACE evita duplicidade usando a Placa como chave
                 conn.execute("INSERT OR REPLACE INTO veiculos (placa, modelo) VALUES (?,?)", (placa, modelo))
                 conn.commit()
-                st.success("Veículo salvo!")
-                st.rerun() # <--- ISSO força o sistema a recarregar e mostrar o novo dado na tabela
-            except Exception as e:
-                st.error(f"Erro ao salvar: {e}")
+                st.success(f"Veículo {placa} salvo com sucesso!")
+                st.rerun()
+            else:
+                st.warning("Por favor, informe a placa.")
 # Exibir dados
 st.sidebar.divider()
 st.sidebar.write("Dados da Frota:")
