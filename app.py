@@ -771,55 +771,94 @@ elif menu == "🛠️ Ordens de Serviço":
             else:
                 st.info("Esta Ordem de Serviço não teve nenhum comprovante fiscal anexado no fechamento.")
         else:
-            st.info("Nenhuma manutenção foi finalizada no sistema até o momento.")# --- MÓDULO: AUDITORIA DE CHECKLISTS ---
+            st.info("Nenhuma manutenção foi finalizada no sistema até o momento.")
+# --- MÓDULO: AUDITORIA DE CHECKLISTS (ECOSSISTEMA COMPLETO) ---
 elif menu == "📋 Auditoria de Checklists":
-    st.title("📋 Painel de Auditoria de Checklists")
-    st.markdown("Consulte e filtre todos os históricos de vistorias realizados pelos operadores e gestores.")
+    st.title("📋 Central de Auditoria Integrada e Vistorias")
+    st.markdown("Consulte relatórios detalhados de checklists, inspecione itens de segurança, limpezas e faça o download de fotos de avarias.")
     
-    # Busca todos os checklists salvos no banco
-    df_checklists = pd.read_sql_query(
-        "SELECT id as ID, placa as Placa, tipo_movimentacao as Movimentação, km as [KM Registrado], combustivel as Combustível, avarias as [Avarias/Obs], pneus_estado as [Estado Pneus], operador as [Responsável/Operador], data as [Data/Hora] FROM checklists ORDER BY id DESC", conn
+    # Busca completa contendo todos os novos campos do checklist
+    df_auditoria = pd.read_sql_query(
+        "SELECT id as ID, placa as Placa, tipo_movimentacao as Movimentação, km as [KM Registrado], "
+        "combustivel as [Nível Combustível], avarias as [Avarias/Obs], pneus_estado as [Estado Pneus], "
+        "motorista as Motorista, destino as Destino, finalidade as Finalidade, "
+        "limpeza_interna as [Limp. Interna], limpeza_externa as [Limp. Externa], "
+        "inspecao_detalhada as [Itens Aprovados], operador as [Operador/Fiscal], data as [Data/Hora] "
+        "FROM checklists ORDER BY id DESC", conn
     )
     
-    if not df_checklists.empty:
-        # Filtros no topo para o Gestor refinar a busca
-        st.markdown("### 🔍 Filtros de Auditoria")
-        c1, c2, c3 = st.columns(3)
+    if not df_auditoria.empty:
+        # 1. BARRA DE FILTROS AVANÇADOS
+        st.markdown("### 🔍 Filtros de Fiscalização")
+        c1, c2, c3, c4 = st.columns(4)
         
         with c1:
-            lista_placas = ["Todos"] + list(df_checklists["Placa"].unique())
-            filtro_placa = st.selectbox("Filtrar por Veículo/Placa", lista_placas)
+            lista_placas = ["Todos"] + list(df_auditoria["Placa"].unique())
+            f_placa = st.selectbox("Filtrar por Veículo", lista_placas)
         with c2:
-            lista_operadores = ["Todos"] + list(df_checklists["Responsável/Operador"].unique())
-            filtro_operador = st.selectbox("Filtrar por Operador", lista_operadores)
+            lista_mov = ["Todos"] + list(df_auditoria["Movimentação"].unique())
+            f_mov = st.selectbox("Filtrar Movimentação", lista_mov)
         with c3:
-            lista_mov = ["Todos"] + list(df_checklists["Movimentação"].unique())
-            filtro_mov = st.selectbox("Filtrar por Tipo de Movimentação", lista_mov)
+            lista_mot = ["Todos"] + list(df_auditoria["Motorista"].unique())
+            f_mot = st.selectbox("Filtrar por Motorista", lista_mot)
+        with c4:
+            lista_pneus = ["Todos"] + list(df_auditoria["Estado Pneus"].unique())
+            f_pneus = st.selectbox("Filtro por Estado do Pneu", lista_pneus)
             
-        # Aplicando os filtros dinamicamente
-        df_filtrado = df_checklists.copy()
-        if filtro_placa != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Placa"] == filtro_placa]
-        if filtro_operador != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Responsável/Operador"] == filtro_operador]
-        if filtro_mov != "Todos":
-            df_filtrado = df_filtrado[df_filtrado["Movimentação"] == filtro_mov]
+        # Aplicando filtros
+        df_filtrado = df_auditoria.copy()
+        if f_placa != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Placa"] == f_placa]
+        if f_mov != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Movimentação"] == f_mov]
+        if f_mot != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Motorista"] == f_mot]
+        if f_pneus != "Todos":
+            df_filtrado = df_filtrado[df_filtrado["Estado Pneus"] == f_pneus]
             
         st.markdown("---")
         
-        # Exibição dos resultados filtrados
-        st.markdown(f"##### 📊 Registros Encontrados: {len(df_filtrado)}")
+        # 2. EXIBIÇÃO DA GRADE PRINCIPAL DE DADOS
+        st.markdown(f"##### 📊 Registros Localizados: {len(df_filtrado)}")
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
         
-        # Recursos adicionais para análise visual do Gestor
-        st.markdown("### ⚠️ Vistorias com Alerta de Avaria ou Pneu")
-        df_alertas = df_filtrado[(df_filtrado["Estado Pneus"] == "Troca Necessária") | (df_filtrado["Avarias/Obs"].str.len() > 0)]
+        st.markdown("---")
         
-        if not df_alertas.empty:
-            st.warning(f"Foram detectados {len(df_alertas)} checklists que apontaram problemas mecânicos ou estéticos.")
-            st.dataframe(df_alertas[["Data/Hora", "Placa", "Movimentação", "Estado Pneus", "Avarias/Obs", "Responsável/Operador"]], use_container_width=True, hide_index=True)
+        # 3. SEÇÃO DE INSPEÇÃO DE ANEXOS VISUAIS (FOTOS DE AVARIAS)
+        st.markdown("### 📸 Central de Inspeção e Evidências Fotográficas")
+        st.markdown("Selecione um checklist abaixo para inspecionar se há registros fotográficos de avarias ou danos anexados pelo operador.")
+        
+        # Cria uma lista de seleção amigável combinando ID, Placa e Data
+        df_seletor_foto = df_filtrado[["ID", "Placa", "Data/Hora", "Movimentação"]]
+        opcoes_fotos = [f"Checklist #{r['ID']} - Carro {r['Placa']} ({r['Movimentação']}) em {r['Data/Hora']}" for _, r in df_seletor_foto.iterrows()]
+        
+        if opcoes_fotos:
+            chk_selecionado_str = st.selectbox("Selecione o checklist para verificar fotos", opcoes_fotos)
+            # Extrai o ID numérico da string selecionada
+            id_chk_sel = int(chk_selecionado_str.split("Checklist #")[1].split(" -")[0])
+            
+            # Busca a imagem binária correspondente no banco
+            res_img = conn.cursor().execute("SELECT foto_avaria FROM checklists WHERE id=?", (id_chk_sel,)).fetchone()
+            
+            if res_img and res_img[0]:
+                st.warning(f"🚨 Evidência localizada para o Checklist #{id_chk_sel}!")
+                # Exibe a foto diretamente na tela
+                st.image(res_img[0], caption=f"Foto de Avaria anexada no Checklist #{id_chk_sel}", use_container_width=True)
+                # Botão para baixar o arquivo físico se necessário
+                st.download_button(label="📥 Baixar Imagem da Avaria", data=res_img[0], file_name=f"Avaria_Checklist_{id_chk_sel}.png", mime="image/png")
+            else:
+                st.info("🟢 Este checklist não possui foto de avaria anexada (Veículo sem inconformidades estéticas aparentes).")
+                
+        # 4. PAINEL ADICIONAL: CONSERVAÇÃO E LIMPEZA (ALERTAS 5S)
+        st.markdown("---")
+        st.markdown("### 🧼 Alerta de Descuido com a Frota (Veículos Sujos)")
+        df_sujos = df_filtrado[(df_filtrado["Limp. Interna"].isin(["Péssima", "Suja"])) | (df_filtrado["Limp. Externa"].isin(["Péssima", "Suja"]))]
+        
+        if not df_sujos.empty:
+            st.error(f"Atenção: Foram encontrados {len(df_sujos)} registros onde o veículo foi entregue ou devolvido fora dos padrões normais de limpeza.")
+            st.dataframe(df_sujos[["Data/Hora", "Placa", "Motorista", "Limp. Interna", "Limp. Externa", "Operador/Fiscal"]], use_container_width=True, hide_index=True)
         else:
-            st.success("✅ Nenhum checklist na seleção atual possui alertas de pneus ou avarias graves.")
+            st.success("🎉 Parabéns! Todos os checklists na seleção atual indicam que os veículos estão limpos e bem conservados.")
             
     else:
-        st.info("💡 Nenhum checklist de campo foi preenchido até o momento. Os dados aparecerão aqui assim que os operadores utilizarem o módulo '📝 Checklist de Campo'.")
+        st.info("💡 Nenhum registro de checklist encontrado no banco de dados para os filtros selecionados.")
