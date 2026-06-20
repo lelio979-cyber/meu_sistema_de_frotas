@@ -40,6 +40,12 @@ elif menu == "Cadastro Veículos":
                 st.rerun()
             else:
                 st.warning("Por favor, informe a placa.")
+                # Tabela exibida na ÁREA PRINCIPAL (mais visível)
+    st.divider()
+    st.subheader("Frota Cadastrada")
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
+    # Exibe a tabela completa com toda a largura da tela
+    st.dataframe(df, use_container_width=True)
 # Exibir dados
 st.sidebar.divider()
 st.sidebar.write("Dados da Frota:")
