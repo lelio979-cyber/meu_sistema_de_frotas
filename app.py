@@ -103,3 +103,28 @@ if menu == "Dashboard": dashboard()
 elif menu == "Gestão de Ativos": gestao_frota()
 elif menu == "Lançar OS": lancar_os()
 elif menu == "Apontar KM": apontar_km()
+
+# --- ADICIONE ESTA FUNÇÃO AO SEU CÓDIGO ---
+def exportar_relatorio():
+    st.title("📥 Relatório Gerencial")
+    conn = sqlite3.connect(DB_NAME)
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
+    conn.close()
+    
+    st.write("Clique abaixo para baixar o inventário completo da frota:")
+    st.download_button(
+        label="Baixar Relatório em CSV",
+        data=df.to_csv(index=False),
+        file_name='relatorio_frota.csv',
+        mime='text/csv'
+    )
+    st.dataframe(df, use_container_width=True)
+
+# --- ATUALIZE O SEU MENU PARA INCLUIR A NOVA OPÇÃO ---
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM", "Relatório"])
+
+if menu == "Dashboard": dashboard()
+elif menu == "Gestão de Ativos": gestao_frota()
+elif menu == "Lançar OS": lancar_os()
+elif menu == "Apontar KM": apontar_km()
+elif menu == "Relatório": exportar_relatorio()
