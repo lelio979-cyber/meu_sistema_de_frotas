@@ -79,11 +79,33 @@ if not st.session_state['auth']:
 st.sidebar.title("FleetX Control")
 st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_state['p_log']}`")
 
-menu = st.sidebar.radio(
-    "Navegação:", 
-    ["📊 Dashboard", "🚗 Cadastros", "📋 Visualizar & Editar", 
-     "📍 Atualizar KM", "📝 Checklist de Campo", "⛽ Abastecimento", "🛠️ Ordens de Serviço", "📋 Auditoria de Checklists"]
-)
+# --- RESTRIÇÃO DINÂMICA DO MENU ---
+perfil_usuario = st.session_state.get('perfil', 'Visualização')
+
+# Define quais abas cada um pode enxergar
+if perfil_usuario == "Gestor":
+    opcoes_menu = [
+        "🚗 Veículos", 
+        "👤 Motoristas", 
+        "📝 Checklist de Campo", 
+        "🛠️ Ordens de Serviço", 
+        "⛽ Abastecimento", 
+        "📋 Auditoria de Checklists",
+        "👥 Gerenciamento de Usuários"
+    ]
+elif perfil_usuario == "Operador":
+    opcoes_menu = [
+        "📝 Checklist de Campo", 
+        "⛽ Abastecimento"
+    ]
+else: # Visualização
+    opcoes_menu = [
+        "🚗 Veículos", 
+        "📋 Auditoria de Checklists"
+    ]
+
+# Renderiza o menu lateral apenas com as opções permitidas
+menu = st.sidebar.selectbox("Navegação", opcoes_menu)
 
 if st.sidebar.button("🚪 Sair", type="primary", use_container_width=True):
     st.session_state['auth'] = False
