@@ -2,6 +2,7 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
+import io
 
 # --- 1. CONFIGURAÇÃO E BANCO DE DADOS ---
 st.set_page_config(page_title="SGF-Fleet Enterprise", layout="wide")
@@ -29,12 +30,19 @@ def setup_db():
     conn.commit()
     conn.close()
 
+def gerar_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Frota')
+    return output.getvalue()
+
 setup_db()
 
 # --- 2. SEGURANÇA (LOGIN) ---
 if "autenticado" not in st.session_state: st.session_state.autenticado = False
 
 if not st.session_state.autenticado:
+    st.title("🚛 SGF-Fleet Login")
     if st.text_input("Senha de Acesso", type="password") == "admin":
         if st.button("Entrar"):
             st.session_state.autenticado = True
@@ -46,17 +54,31 @@ st.sidebar.title("Navegação")
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Checklist"])
 
 if menu == "Dashboard":
-    st.title("📊 Painel de Controle")
+    st.title("📊 Painel de Controle e Alertas")
     conn = get_db()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_logs = pd.read_sql("SELECT * FROM logs ORDER BY data_hora DESC LIMIT 10", conn)
     conn.close()
     
-    st.subheader("Frota Cadastrada")
-    st.dataframe(df_v)
+    # Alertas de Manutenção
+    if not df_v.empty:
+        st.subheader("Status de Manutenção Preventiva")
+        for index, row in df_v.iterrows():
+            progresso = min(row['km_atual'] / row['limite_revisao'], 1.0)
+            cor = "🔴 Crítico" if progresso >= 0.9 else "🟡 Atenção" if progresso >= 0.7 else "🟢 Em Dia"
+            
+            col1, col2 = st.columns([1, 3])
+            col1.write(f"**{row['placa']}** ({cor})")
+            col2.progress(progresso)
+            st.write(f"KM: {row['km_atual']} / Limite: {row['limite_revisao']}")
+            st.divider()
     
     st.subheader("📜 Auditoria Recente")
     st.dataframe(df_logs)
+    
+    st.subheader("📥 Exportação")
+    if st.download_button("Baixar Relatório (Excel)", data=gerar_excel(df_v), file_name="frota.xlsx"):
+        st.success("Download iniciado!")
 
 elif menu == "Cadastro":
     st.title("📝 Cadastro de Ativos")
@@ -71,7 +93,7 @@ elif menu == "Cadastro":
             conn.commit()
             conn.close()
             registrar_log(f"Cadastro: {placa}", "veiculos")
-            st.success("Veículo salvo com sucesso!")
+            st.success("Veículo salvo!")
 
 elif menu == "Checklist":
     st.title("✅ Checklist Operacional")
