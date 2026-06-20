@@ -57,28 +57,84 @@ def init_db():
     return conn
 conn = init_db()
 
-if 'auth' not in st.session_state:
-    st.session_state.update({'auth': False, 'u_log': "", 'p_log': ""})
+# ==============================================================================
+# --- SISTEMA DE AUTENTICAÇÃO E CONTROLE DE ACESSOS (SESSÃO BLINDADA) ---
+# ==============================================================================
 
-if not st.session_state['auth']:
-    st.title("🔑 FleetX - Login")
-    with st.form("f_login"):
-        u = st.text_input("ID").strip().lower()
-        s = st.text_input("Senha", type="password")
-        if st.form_submit_button("Entrar", use_container_width=True):
+# Garante que as variáveis de controle existam no estado do Streamlit
+if 'autenticado' not in st.session_state:
+    st.session_state['autenticado'] = False
+if 'u_log' not in st.session_state:
+    st.session_state['u_log'] = None
+if 'perfil' not in st.session_state:
+    st.session_state['perfil'] = 'Visualização'
+
+# Se o usuário não estiver logado, exibe a tela de login
+if not st.session_state['autenticado']:
+    st.title("🔐 Acesso ao Sistema de Frotas")
+    
+    with st.form("form_login_central"):
+        usuario_input = st.text_input("Usuário").strip().lower()
+        senha_input = st.text_input("Senha", type="password")
+        
+        if st.form_submit_button("Entrar"):
+            # Busca o usuário no banco de dados v13
             res = conn.cursor().execute(
-                "SELECT perfil FROM usuarios WHERE usuario = ? AND senha_hash = ?", 
-                (u, ger_hash(s))
+                "SELECT senha_hash, perfil FROM usuarios WHERE usuario = ?", 
+                (usuario_input,)
             ).fetchone()
-            if res:
-                st.session_state.update({'auth': True, 'u_log': u, 'p_log': res[0]})
+            
+            if res and verificar_senha(senha_input, res[0]): # verificar_senha ou ger_hash dependendo da sua criptografia
+                st.session_state['autenticado'] = True
+                st.session_state['u_log'] = usuario_input
+                st.session_state['perfil'] = res[1] # Armazena se é Gestor, Operador ou Visualização
+                st.success("Logado com sucesso!")
                 st.rerun()
-            else: st.error("Incorreto!")
-    st.stop()
+            else:
+                st.error("❌ Usuário ou senha incorretos.")
+    st.stop() # Interrompe a execução do app para não renderizar as telas sem login
 
-st.sidebar.title("FleetX Control")
-st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_state['p_log']}`")
+# ==============================================================================
+# --- CONSTRUÇÃO DO MENU BASEADO NO PERFIL ATIVO ---
+# ==============================================================================
+# Captura o perfil de forma segura para evitar qualquer NameError posterior
+perfil_usuario = st.session_state['perfil']
 
+# Definição estrita de escopo por papel (Role-Based Access Control)
+if perfil_usuario == "Gestor":
+    opcoes_menu = [
+        "🚗 Veículos", 
+        "👤 Motoristas", 
+        "📝 Checklist de Campo", 
+        "🛠️ Ordens de Serviço", 
+        "⛽ Abastecimento", 
+        "📋 Auditoria de Checklists",
+        "👥 Gerenciamento de Usuários"
+    ]
+elif perfil_usuario == "Operador":
+    opcoes_menu = [
+        "📝 Checklist de Campo", 
+        "⛽ Abastecimento"
+    ]
+else: 
+    # Perfil: Visualização (Apenas relatórios e dados de frota estáticos)
+    opcoes_menu = [
+        "🚗 Veículos", 
+        "📋 Auditoria de Checklists"
+    ]
+
+# Botão de Logout fixo no topo da barra lateral
+st.sidebar.markdown(f"👤 Logado como: **{st.session_state['u_log']}** ({perfil_usuario})")
+if st.sidebar.button("🚪 Sair do Sistema"):
+    st.session_state['autenticado'] = False
+    st.session_state['u_log'] = None
+    st.session_state['perfil'] = 'Visualização'
+    st.rerun()
+
+st.sidebar.markdown("---")
+
+# Renderização segura do seletor
+menu = st.sidebar.selectbox("Navegação", opcoes_menu)
 # Exemplo de trava para colocar dentro dos formulários de cadastro:
 if perfil_usuario == "Visualização":
     st.warning("⚠️ Seu perfil de 'Visualização' não permite realizar alterações ou cadastros.")
