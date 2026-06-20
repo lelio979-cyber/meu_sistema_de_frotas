@@ -2,40 +2,63 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# Configuração da página
-st.set_page_config(page_title="SGF-Pro Base", layout="wide")
-
-# Conexão com o banco de dados
+# Conexão baseada na versão anterior
 def get_db():
-    conn = sqlite3.connect('frotas_limpo.db', check_same_thread=False)
-    return conn
+    return sqlite3.connect('frotas_limpo.db', check_same_thread=False)
 
-# Inicialização de tabelas (Força a criação na primeira vez)
 def init_tables():
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS veiculos (
             placa TEXT PRIMARY KEY, 
-            modelo TEXT
+            modelo TEXT,
+            ano INTEGER
         )
     """)
     conn.commit()
     conn.close()
 
-# Executa a inicialização
 init_tables()
 
-# Interface Principal
 def main():
-    st.title("SGF-Pro V22 - Base Estável")
-    st.write("Sistema rodando com sucesso!")
+    st.title("SGF-Pro V22 | Gestão de Veículos")
     
-    # Menu de navegação simples
-    menu = st.sidebar.radio("Navegação", ["Dashboard"])
+    # Navegação
+    menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro de Veículos"])
     
     if menu == "Dashboard":
-        st.success("O sistema base está operacional.")
+        st.write("Bem-vindo ao sistema.")
+        
+    elif menu == "Cadastro de Veículos":
+        st.subheader("Cadastrar Novo Veículo")
+        
+        # Formulário Profissional
+        with st.form("form_veiculo", clear_on_submit=True):
+            placa = st.text_input("Placa do Veículo (Ex: ABC-1234)").upper()
+            modelo = st.text_input("Modelo")
+            ano = st.number_input("Ano", min_value=1990, max_value=2030, step=1)
+            
+            submit = st.form_submit_button("Salvar Veículo")
+            
+            if submit:
+                if placa:
+                    conn = get_db()
+                    try:
+                        conn.execute("INSERT INTO veiculos (placa, modelo, ano) VALUES (?, ?, ?)", (placa, modelo, ano))
+                        conn.commit()
+                        st.success(f"Veículo {placa} cadastrado com sucesso!")
+                    except sqlite3.IntegrityError:
+                        st.error("Erro: Esta placa já existe no sistema.")
+                    conn.close()
+                else:
+                    st.warning("A placa é obrigatória.")
+
+        # Exibição dos dados
+        st.subheader("Veículos Cadastrados")
+        conn = get_db()
+        df = pd.read_sql("SELECT * FROM veiculos", conn)
+        st.dataframe(df, use_container_width=True)
+        conn.close()
 
 if __name__ == "__main__":
     main()
