@@ -79,8 +79,13 @@ if not st.session_state['auth']:
 st.sidebar.title("FleetX Control")
 st.sidebar.markdown(f"👤 `{st.session_state['u_log']}` | 🛡️ `{st.session_state['p_log']}`")
 
-# --- RESTRIÇÃO DINÂMICA DO MENU ---
-perfil_usuario = st.session_state.get('perfil', 'Visualização')
+# Exemplo de trava para colocar dentro dos formulários de cadastro:
+if perfil_usuario == "Visualização":
+    st.warning("⚠️ Seu perfil de 'Visualização' não permite realizar alterações ou cadastros.")
+else:
+    if st.form_submit_button("Salvar Registro"):
+        # Executa o código do banco normalmente...
+        pass
 
 # Define quais abas cada um pode enxergar
 if perfil_usuario == "Gestor":
