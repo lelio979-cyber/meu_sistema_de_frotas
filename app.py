@@ -2,35 +2,38 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-st.set_page_config(page_title="SGF-Fleet Rápido", layout="centered")
+# --- CONFIGURAÇÃO ---
+st.set_page_config(page_title="SGF-Fleet Elite Enterprise", layout="wide")
 
-def get_db(): return sqlite3.connect("frota.db")
+def get_db(): return sqlite3.connect("frota_enterprise.db")
 
-# Inserção rápida de dados
-st.title("🚛 Entrada Rápida de Dados")
+# --- MÓDULO DE SEGURANÇA (Autenticação) ---
+def check_auth():
+    if "auth" not in st.session_state: st.session_state.auth = False
+    if not st.session_state.auth:
+        if st.text_input("Senha", type="password") == "admin":
+            st.session_state.auth = True
+            st.rerun()
+        st.stop()
 
-tab1, tab2, tab3 = st.tabs(["Veículos", "Manutenção", "Combustível"])
+# --- ARQUITETURA MODULAR (Adicione novos módulos aqui) ---
+def modulo_veiculos():
+    st.header("Veículos")
+    # ... aqui entra o form de cadastro robusto ...
+    
+def modulo_checklist():
+    st.header("Checklist Operacional")
+    # ... aqui entra o form de inspeção de pneus, oleo, etc ...
 
-with tab1:
-    with st.form("c1"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        if st.form_submit_button("Salvar Veículo"):
-            conn = get_db()
-            conn.execute("INSERT OR REPLACE INTO veiculos (placa, modelo) VALUES (?, ?)", (placa, modelo))
-            conn.commit()
-            st.success("Salvo!")
+# --- EXECUÇÃO DO SISTEMA ---
+check_auth()
 
-with tab2:
-    with st.form("c2"):
-        placa_os = st.selectbox("Placa", pd.read_sql("SELECT placa FROM veiculos", get_db())['placa'])
-        servico = st.text_input("Serviço")
-        if st.form_submit_button("Salvar OS"):
-            conn = get_db()
-            conn.execute("INSERT INTO os (placa, servico) VALUES (?, ?)", (placa_os, servico))
-            conn.commit()
-            st.success("OS salva!")
+st.sidebar.title("Navegação")
+app_mode = st.sidebar.radio("Módulos", ["Dashboard", "Veículos", "Manutenção", "Checklist", "Auditoria"])
 
-with tab3:
-    st.dataframe(pd.read_sql("SELECT * FROM veiculos", get_db()))
-    st.dataframe(pd.read_sql("SELECT * FROM os", get_db()))
+if app_mode == "Dashboard":
+    st.title("Painel de Controle")
+    # Adicione aqui métricas com st.metric()
+elif app_mode == "Veículos":
+    modulo_veiculos()
+# ... E assim por diante ...
