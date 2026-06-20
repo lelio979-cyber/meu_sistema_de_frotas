@@ -7,6 +7,11 @@ st.set_page_config(page_title="SGF-Fleet Elite", layout="wide")
 
 # 2. FUNÇÃO DE CONEXÃO E SETUP (Banco de Dados)
 def get_db():
+    def registrar_log(acao, tabela):
+    conn = get_db()
+    conn.execute("INSERT INTO logs (acao, tabela) VALUES (?, ?)", (acao, tabela))
+    conn.commit()
+    conn.close()
     return sqlite3.connect("frota.db")
 
 def setup_db():
