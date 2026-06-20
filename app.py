@@ -10,59 +10,45 @@ def get_db():
 
 def setup():
     conn = get_db()
-    # Tabela de Veículos
     conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km INTEGER)")
-    # Tabela de Manutenção (OS) - Nova tabela
     conn.execute("CREATE TABLE IF NOT EXISTS os (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, servico TEXT, custo REAL)")
+    # Nova tabela de combustíveis
+    conn.execute("CREATE TABLE IF NOT EXISTS combustivel (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, litros REAL, km_rodado REAL)")
     conn.commit()
     conn.close()
 
 setup()
 
 st.title("🚛 Gestão de Frota")
-menu = st.sidebar.radio("Menu", ["Cadastro", "Manutenção", "Dashboard"])
+menu = st.sidebar.radio("Menu", ["Cadastro", "Manutenção", "Combustível", "Dashboard"])
 
-if menu == "Cadastro":
-    st.subheader("Novo Veículo")
-    with st.form("form_cad"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        km = st.number_input("KM Inicial", 0)
-        if st.form_submit_button("Salvar"):
-            conn = get_db()
-            try:
-                conn.execute("INSERT INTO veiculos VALUES (?, ?, ?)", (placa, modelo, km))
-                conn.commit()
-                st.success("Veículo salvo!")
-            except: st.error("Erro ao salvar.")
-            conn.close()
-
-elif menu == "Manutenção":
-    st.subheader("Registrar Manutenção")
+# [Mantenha os módulos anteriores de Cadastro e Manutenção aqui]
+# --- NOVO MÓDULO ---
+if menu == "Combustível":
+    st.subheader("Registrar Abastecimento")
     conn = get_db()
     veiculos = pd.read_sql("SELECT placa FROM veiculos", conn)
     conn.close()
     
     if not veiculos.empty:
-        with st.form("form_os"):
+        with st.form("form_comb"):
             placa = st.selectbox("Veículo", veiculos['placa'])
-            servico = st.text_input("Serviço Realizado")
-            custo = st.number_input("Custo (R$)", 0.0)
-            if st.form_submit_button("Salvar OS"):
+            litros = st.number_input("Litros Abastecidos", 0.1)
+            km_rodado = st.number_input("KM Rodado desde último abastecimento", 0.1)
+            if st.form_submit_button("Salvar Combustível"):
                 conn = get_db()
-                conn.execute("INSERT INTO os (placa, servico, custo) VALUES (?, ?, ?)", (placa, servico, custo))
+                conn.execute("INSERT INTO combustivel (placa, litros, km_rodado) VALUES (?, ?, ?)", (placa, litros, km_rodado))
                 conn.commit()
                 conn.close()
-                st.success("OS registrada!")
-    else: st.warning("Cadastre um veículo antes.")
+                media = km_rodado / litros
+                st.success(f"Média calculada: {media:.2f} KM/L!")
+    else: st.warning("Cadastre um veículo primeiro.")
 
 elif menu == "Dashboard":
     st.subheader("Painel Geral")
     conn = get_db()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_os = pd.read_sql("SELECT * FROM os", conn)
+    df_comb = pd.read_sql("SELECT * FROM combustivel", conn)
     conn.close()
-    st.write("### Veículos")
-    st.dataframe(df_v)
-    st.write("### Manutenções")
-    st.dataframe(df_os)
+    st.write("### Consumo de Combustível")
+    st.dataframe(df_comb)
