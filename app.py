@@ -22,6 +22,17 @@ def init_db():
 
 init_db()
 
+def check_table():
+    conn = sqlite3.connect(DB_NAME)
+    # Exclui a tabela se ela estiver com a estrutura errada (Atenção: isso reseta o cadastro)
+    conn.execute("DROP TABLE IF EXISTS veiculos") 
+    conn.execute("CREATE TABLE veiculos (placa TEXT PRIMARY KEY, modelo TEXT, motorista TEXT, km_atual INTEGER, km_revisao INTEGER)")
+    conn.commit()
+    conn.close()
+
+# Descomente a linha abaixo apenas uma vez para resetar e corrigir a estrutura
+# check_table()
+
 # --- NAVEGAÇÃO E MÓDULOS ---
 menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM", "Multas", "Combustível", "Relatório"])
 
