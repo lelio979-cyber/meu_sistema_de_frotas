@@ -131,14 +131,17 @@ st.sidebar.markdown("---")
 
 # Renderização segura do seletor
 menu = st.sidebar.selectbox("Navegação", opcoes_menu)
-# Exemplo de trava para colocar dentro dos formulários de cadastro:
-if perfil_usuario == "Visualização":
-    st.warning("⚠️ Seu perfil de 'Visualização' não permite realizar alterações ou cadastros.")
-else:
-    if st.form_submit_button("Salvar Registro"):
-        # Executa o código do banco normalmente...
-        pass
-
+# --- MODELO PADRÃO E SEGURO DE BOTÃO ---
+if st.form_submit_button("Salvar Registro"):
+    if st.session_state.get('perfil') == "Visualização":
+        st.error("❌ Acesso Negado: O seu perfil de 'Visualização' não permite realizar cadastros ou alterações.")
+    else:
+        # --- AQUI DEIXA FICAR AS LINHAS DE INSERT/UPDATE QUE JÁ ESTAVAM NO SEU CÓDIGO ---
+        # Exemplo:
+        # conn.cursor().execute("INSERT INTO ...")
+        # conn.commit()
+        st.success("Registro guardado com sucesso!")
+        st.rerun()
 # --- CORREÇÃO DO MENU LATERAL (LINHA 83) ---
 # 1. Primeiro capturamos o perfil com um nome claro e completo
 perfil_usuario = st.session_state.get('perfil', 'Visualização')
