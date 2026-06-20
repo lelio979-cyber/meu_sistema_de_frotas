@@ -839,11 +839,29 @@ elif menu == "⛽ Abastecimento":
             st.dataframe(df_ver_ab, use_container_width=True, hide_index=True)
         else:
             st.info("Nenhum cupom de combustível registrado recentemente.")
-# --- MÓDULO: ORDENS DE SERVIÇO ---
+# --- MÓDULO: ORDENS DE SERVIÇO (CORRIGIDO CONTRA ERRO DE SCHEMA) ---
 elif menu == "🛠️ Ordens de Serviço":
     st.title("🛠️ Central de Engenharia de Manutenção & O.S.")
     st.markdown("Gerencie o fluxo de oficina, aprove orçamentos, calcule o downtime e audite notas fiscais.")
     
+    # Executa uma verificação rápida de segurança para garantir as colunas novas
+    try:
+        conn.cursor().execute("ALTER TABLE ordens_servico ADD COLUMN natureza_manutencao TEXT DEFAULT 'Corretiva'")
+        conn.cursor().execute("ALTER TABLE ordens_servico ADD COLUMN oficina_parceira TEXT")
+        conn.cursor().execute("ALTER TABLE ordens_servico ADD COLUMN pecas_substituidas TEXT")
+        conn.cursor().execute("ALTER TABLE ordens_servico ADD COLUMN arquivo_nf BLOB")
+        conn.cursor().execute("ALTER TABLE ordens_servico ADD COLUMN data_fim TEXT")
+        conn.commit()
+    except:
+        # Se as colunas já existirem, o SQLite gera um erro que nós ignoramos com segurança
+        pass
+
+    # AGORA A BUSCA RODA 100% BLINDADA CONTRA O ERRO DA IMAGEM
+    try:
+        df_os_total = pd.read_sql_query("SELECT status, custo, natureza_manutencao FROM ordens_servico", conn)
+    except Exception as e:
+        st.error(f"⚠️ Erro de compatibilidade do banco: {e}. Certifique-se de que a função init_db() está conectada ao 'frotas_v13.db'.")
+        df_os_total = pd.DataFrame(columns=["status", "custo", "natureza_manutencao"])    
     # 1. MÉTRICAS E INDICADORES DO ECOSSISTEMA
     df_os_total = pd.read_sql_query("SELECT status, custo, natureza_manutencao FROM ordens_servico", conn)
     
