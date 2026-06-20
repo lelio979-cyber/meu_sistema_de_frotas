@@ -2,129 +2,57 @@ import streamlit as st
 import sqlite3
 import pandas as pd
 
-# --- CONFIGURAÇÃO ---
 st.set_page_config(page_title="SGF-Fleet Elite Pro", layout="wide")
 DB_NAME = "sgf_fleet_elite.db"
 
-# --- BANCO DE DADOS (Estrutura Completa) ---
+# --- INICIALIZAÇÃO COM NOVAS TABELAS ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
-    # Tabela Veículos
-    conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
-        placa TEXT PRIMARY KEY, modelo TEXT, motorista TEXT, 
-        km_atual INTEGER, km_revisao INTEGER)""")
-    # Tabela Manutenção (OS)
-    conn.execute("""CREATE TABLE IF NOT EXISTS os (
+    # Tabela Multas
+    conn.execute("""CREATE TABLE IF NOT EXISTS multas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, motorista TEXT, 
+        valor REAL, data DATE, comprovante_link TEXT)""")
+    # Tabela Combustível
+    conn.execute("""CREATE TABLE IF NOT EXISTS abastecimentos (
         id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, 
-        servico TEXT, custo REAL, data DATE)""")
+        litros REAL, km_percorrido REAL)""")
     conn.commit(); conn.close()
 
 init_db()
 
-# --- MÓDULOS DO SISTEMA ---
-def dashboard():
-    st.title("📊 Painel de Performance (Elite Pro)")
-    conn = sqlite3.connect(DB_NAME)
-    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_os = pd.read_sql("SELECT * FROM os", conn)
-    conn.close()
-    
-    if not df_v.empty:
-        for _, veic in df_v.iterrows():
-            total_custo = df_os[df_os['placa'] == veic['placa']]['custo'].sum()
-            custo_km = total_custo / veic['km_atual'] if veic['km_atual'] > 0 else 0
-            
-            with st.expander(f"🚛 {veic['placa']} | {veic['modelo']} (Condutor: {veic['motorista']})"):
-                c1, c2, c3 = st.columns(3)
-                c1.metric("KM Atual", f"{veic['km_atual']:,}")
-                c2.metric("Custo Manutenção", f"R$ {total_custo:,.2f}")
-                c3.metric("Eficiência (Custo/KM)", f"R$ {custo_km:.2f}")
-                
-                # Alerta de Revisão
-                if veic['km_atual'] >= veic['km_revisao']:
-                    st.error(f"🚨 ALERTA: Veículo {veic['placa']} com revisão vencida!")
-    else:
-        st.info("Nenhum veículo cadastrado.")
-
-def gestao_frota():
-    st.title("🚛 Cadastro de Ativos")
-    with st.form("form_veic", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        placa = col1.text_input("Placa").upper()
-        modelo = col2.text_input("Modelo")
-        motorista = col1.text_input("Motorista")
-        km = col2.number_input("KM Atual", min_value=0)
-        km_rev = col2.number_input("KM Próxima Revisão", min_value=0)
-        
-        if st.form_submit_button("Registrar Ativo"):
+# --- MÓDULO DE MULTAS ---
+def gestao_multas():
+    st.title("⚠️ Registro de Multas")
+    with st.form("form_multa"):
+        placa = st.text_input("Placa do Veículo").upper()
+        motorista = st.text_input("Motorista Responsável")
+        valor = st.number_input("Valor da Multa (R$)", min_value=0.0)
+        link = st.text_input("Link ou Caminho da Foto/Comprovante")
+        if st.form_submit_button("Registrar Multa"):
             conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?)", 
-                         (placa, modelo, motorista, km, km_rev))
-            conn.commit(); conn.close()
-            st.success("Ativo registrado!"); st.rerun()
+            conn.execute("INSERT INTO multas (placa, motorista, valor, comprovante_link) VALUES (?,?,?,?)", 
+                         (placa, motorista, valor, link))
+            conn.commit(); conn.close(); st.success("Multa registrada!")
 
-def lancar_os():
-    st.title("🛠️ Lançar Ordem de Serviço")
-    conn = sqlite3.connect(DB_NAME)
-    veiculos = pd.read_sql("SELECT placa FROM veiculos", conn)
-    conn.close()
-    
-    with st.form("form_os"):
-        placa = st.selectbox("Veículo", veiculos['placa'])
-        servico = st.text_input("Serviço")
-        custo = st.number_input("Custo (R$)", min_value=0.0)
-        if st.form_submit_button("Lançar OS"):
+# --- MÓDULO DE COMBUSTÍVEL ---
+def controle_combustivel():
+    st.title("⛽ Controle de Consumo (KM/L)")
+    with st.form("form_combustivel"):
+        placa = st.text_input("Placa do Veículo").upper()
+        litros = st.number_input("Litros Abastecidos", min_value=0.1)
+        km_rodado = st.number_input("KM Percorrido desde último abastecimento", min_value=0.1)
+        if st.form_submit_button("Calcular Média"):
+            media = km_rodado / litros
             conn = sqlite3.connect(DB_NAME)
-            conn.execute("INSERT INTO os (placa, servico, custo, data) VALUES (?,?,?,?)", 
-                         (placa, servico, custo, pd.Timestamp.now().date()))
+            conn.execute("INSERT INTO abastecimentos (placa, litros, km_percorrido) VALUES (?,?,?)", 
+                         (placa, litros, km_rodado))
             conn.commit(); conn.close()
-            st.success("OS lançada!"); st.rerun()
-
-def apontar_km():
-    st.title("⏱️ Apontamento Rápido de KM")
-    conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql("SELECT placa FROM veiculos", conn)
-    conn.close()
-    
-    with st.form("form_km"):
-        placa = st.selectbox("Selecione o Veículo", df['placa'])
-        novo_km = st.number_input("Novo KM", min_value=0)
-        if st.form_submit_button("Atualizar KM"):
-            conn = sqlite3.connect(DB_NAME)
-            conn.execute("UPDATE veiculos SET km_atual = ? WHERE placa = ?", (novo_km, placa))
-            conn.commit(); conn.close()
-            st.success("KM Atualizado!"); st.rerun()
+            st.success(f"Média calculada: {media:.2f} KM/L. Dados salvos!")
 
 # --- MENU DE NAVEGAÇÃO ---
 st.sidebar.title("SGF-Fleet Elite")
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM"])
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM", "Multas", "Combustível", "Relatório"])
 
-if menu == "Dashboard": dashboard()
-elif menu == "Gestão de Ativos": gestao_frota()
-elif menu == "Lançar OS": lancar_os()
-elif menu == "Apontar KM": apontar_km()
-
-# --- ADICIONE ESTA FUNÇÃO AO SEU CÓDIGO ---
-def exportar_relatorio():
-    st.title("📥 Relatório Gerencial")
-    conn = sqlite3.connect(DB_NAME)
-    df = pd.read_sql("SELECT * FROM veiculos", conn)
-    conn.close()
-    
-    st.write("Clique abaixo para baixar o inventário completo da frota:")
-    st.download_button(
-        label="Baixar Relatório em CSV",
-        data=df.to_csv(index=False),
-        file_name='relatorio_frota.csv',
-        mime='text/csv'
-    )
-    st.dataframe(df, use_container_width=True)
-
-# --- ATUALIZE O SEU MENU PARA INCLUIR A NOVA OPÇÃO ---
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Gestão de Ativos", "Lançar OS", "Apontar KM", "Relatório"])
-
-if menu == "Dashboard": dashboard()
-elif menu == "Gestão de Ativos": gestao_frota()
-elif menu == "Lançar OS": lancar_os()
-elif menu == "Apontar KM": apontar_km()
-elif menu == "Relatório": exportar_relatorio()
+if menu == "Multas": gestao_multas()
+elif menu == "Combustível": controle_combustivel()
+# ... (manter as chamadas anteriores para Dashboard, Gestão, etc.)
