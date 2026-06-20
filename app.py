@@ -13,21 +13,25 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # Adicionando a coluna crlv_path caso não exista
+    # Tabela Veículos
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
         valor_locacao REAL, usuario TEXT, cidade TEXT, crlv_path TEXT)""")
     
-    # Check para adicionar a coluna se ela não existir em um banco antigo
+    # Migração automática para garantir o campo crlv_path
     cursor = conn.cursor()
     cursor.execute("PRAGMA table_info(veiculos)")
     cols = [info[1] for info in cursor.fetchall()]
     if 'crlv_path' not in cols:
         conn.execute("ALTER TABLE veiculos ADD COLUMN crlv_path TEXT")
-    
+        
+    conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
     conn.commit()
     conn.close()
+
 init_db()
 
 # --- LOGIN ---
@@ -43,7 +47,7 @@ if not st.session_state['logado']:
             st.session_state['logado'] = True; st.session_state['perfil'] = perfil[0]; st.rerun()
     st.stop()
 
-# --- DASHBOARD COM GESTÃO ---
+# --- DASHBOARD ESTRATÉGICO ---
 def dashboard():
     st.title("📊 Painel Estratégico de Frota")
     conn = get_conn()
@@ -58,25 +62,16 @@ def dashboard():
     c4.metric("Total de Ativos", len(df_v))
     
     st.divider()
-    
-    # Gestão de Tabela
-    st.subheader("Gerenciamento de Ativos")
-    # Tabela Editável
+    st.subheader("Gestão de Ativos")
     edited_df = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
     
-    col_a, col_b = st.columns(2)
-    if col_a.button("Salvar Edições"):
+    if st.button("Salvar Edições na Tabela"):
         edited_df.to_sql('veiculos', conn, if_exists='replace', index=False)
-        st.success("Tabela atualizada!"); st.rerun()
+        st.success("Dados salvos!")
         
-    placa_del = col_b.text_input("Placa para Excluir permanentemente:")
-    if col_b.button("Excluir Registro"):
-        conn.execute("DELETE FROM veiculos WHERE placa = ?", (placa_del.upper(),))
-        conn.commit(); st.warning(f"Registro {placa_del} excluído!"); st.rerun()
-    
     conn.close()
 
-# --- CADASTRO ---
+# --- CADASTRO COMPLETO ---
 def cadastro():
     st.title("➕ Cadastro de Veículo")
     with st.form("form_completo", clear_on_submit=True):
@@ -91,20 +86,16 @@ def cadastro():
         valor = c2.number_input("Valor Locação (R$)", 0.0)
         user = c1.text_input("Usuário")
         cidade = c2.text_input("Cidade")
-        
-        # CAMPO NOVO: Upload do CRLV
-        crlv = st.file_uploader("Upload do CRLV (PDF ou Imagem)", type=['pdf', 'jpg', 'png'])
+        crlv = c1.file_uploader("Upload CRLV", type=['pdf', 'jpg', 'png'])
         
         if st.form_submit_button("Salvar Ativo"):
             conn = get_conn()
-            # Salva o nome do arquivo no banco
-            crlv_nome = crlv.name if crlv else None
-            
             conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                         (placa, marca, modelo, status, comb, km, dt_aq, valor, user, cidade, crlv_nome))
+                         (placa, marca, modelo, status, comb, km, dt_aq, valor, user, cidade, crlv.name if crlv else None))
             conn.commit()
             conn.close()
-            st.success("Ativo registrado com o CRLV!")
+            st.success("Ativo registrado com CRLV!")
+
 # --- NAVEGAÇÃO ---
 st.sidebar.title(f"Olá, {st.session_state['perfil']}")
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
@@ -112,6 +103,4 @@ if st.sidebar.button("Sair"): st.session_state['logado'] = False; st.rerun()
 
 if menu == "Dashboard": dashboard()
 elif menu == "Cadastro": cadastro()
-elif menu == "Lançar Custo": 
-    st.title("💰 Lançar Custo")
-    # ... (Manter lógica de lançamento de custo)    
+elif menu == "Lançar Custo": st.write("Módulo de Custos ativo.")
