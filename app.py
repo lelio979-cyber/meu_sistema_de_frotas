@@ -13,34 +13,30 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # Cria tabelas se não existirem
+    # Cria a tabela se não existir
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
         data_devolucao DATE, valor_locacao REAL, usuario TEXT, 
-        cidade TEXT, doc_path TEXT)""")
+        cidade TEXT, doc_path TEXT, foto_path TEXT)""")
     
-    # --- CHECK DE SEGURANÇA: Adiciona colunas se faltarem ---
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA table_info(veiculos)")
-    cols = [info[1] for info in cursor.fetchall()]
-    
-    colunas_necessarias = {
-        'marca': 'TEXT', 'modelo': 'TEXT', 'status': 'TEXT', 
-        'combustivel': 'TEXT', 'km_inicial': 'INTEGER', 'data_aquisicao': 'DATE',
-        'data_devolucao': 'DATE', 'valor_locacao': 'REAL', 'usuario': 'TEXT',
-        'cidade': 'TEXT', 'doc_path': 'TEXT'
-    }
-    
-    for col, tipo in colunas_necessarias.items():
-        if col not in cols:
+    # Migração automática para garantir que todos os campos existam
+    colunas_atuais = [info[1] for info in conn.execute("PRAGMA table_info(veiculos)").fetchall()]
+    campos = {'doc_path': 'TEXT', 'foto_path': 'TEXT'}
+    for col, tipo in campos.items():
+        if col not in colunas_atuais:
             conn.execute(f"ALTER TABLE veiculos ADD COLUMN {col} {tipo}")
             
+    conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)""")
+    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
     conn.commit()
     conn.close()
+
 init_db()
 
-# --- LÓGICA DE LOGIN ---
+# --- LOGIN ---
 if 'logado' not in st.session_state: st.session_state['logado'] = False
 if not st.session_state['logado']:
     st.title("🔐 Login SGF-Pro")
@@ -53,63 +49,55 @@ if not st.session_state['logado']:
             st.session_state['logado'] = True; st.session_state['perfil'] = perfil[0]; st.rerun()
     st.stop()
 
-# --- MODULOS ---
-def exibir_dashboard():
-    st.title("📊 Dashboard Executivo - Gestão de Frota")
+# --- MÓDULOS ---
+def dashboard():
+    st.title("📊 Dashboard Executivo")
     conn = get_conn()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_d = pd.read_sql("SELECT * FROM despesas", conn)
     conn.close()
     
     if not df_v.empty:
-        # Layout de métricas superiores (Simulando a imagem)
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3 = st.columns(3)
         col1.metric("Frota Ativa", len(df_v[df_v['status']=='Ativo']))
         col2.metric("Custo Mensal", f"R$ {df_d['valor'].sum():,.2f}")
-        col3.metric("KM Média", f"{df_v['km_inicial'].mean():.0f}")
-        col4.metric("Alertas", 0)
+        col3.metric("Total Veículos", len(df_v))
         
         st.divider()
-        # Gráficos de análise
-        c1, c2 = st.columns(2)
-        with c1:
-            st.subheader("Distribuição de Status")
-            fig = px.pie(df_v, names='status', hole=0.4)
-            st.plotly_chart(fig, use_container_width=True)
-        with c2:
-            st.subheader("Veículos por Cidade")
-            st.bar_chart(df_v['cidade'].value_counts())
+        fig = px.pie(df_v, names='status', title="Distribuição de Status")
+        st.plotly_chart(fig, use_container_width=True)
     else: st.info("Nenhum veículo cadastrado.")
 
-def exibir_cadastro():
-    st.title("➕ Cadastro Detalhado de Veículo")
-    with st.form("form_completo"):
+def cadastro():
+    st.title("➕ Cadastro Completo")
+    with st.form("form_completo", clear_on_submit=True):
         c1, c2 = st.columns(2)
         placa = c1.text_input("Placa").upper()
         marca = c2.text_input("Marca")
         modelo = c1.text_input("Modelo")
         status = c2.selectbox("Status", ["Ativo", "Manutenção", "Inativo"])
-        comb = c1.selectbox("Tipo de Combustível", ["Gasolina", "Etanol", "Diesel S10", "Flex"])
+        comb = c1.selectbox("Combustível", ["Gasolina", "Etanol", "Diesel S10", "Flex"])
         km = c2.number_input("KM Inicial", 0)
         dt_aq = c1.date_input("Data de Aquisição")
         dt_dev = c2.date_input("Data de Devolução")
-        valor = c1.number_input("Valor de Locação (R$)", 0.0)
-        user = c2.text_input("Quem utiliza")
+        valor = c1.number_input("Valor Locação (R$)", 0.0)
+        user = c2.text_input("Usuário")
         cidade = c1.text_input("Cidade")
-        doc = c2.file_uploader("Documento do Veículo")
+        foto = c1.file_uploader("Foto do Veículo", type=['jpg', 'png'])
+        doc = c2.file_uploader("Documento (PDF)", type=['pdf'])
         
-        if st.form_submit_button("Salvar Veículo"):
+        if st.form_submit_button("Salvar Registro"):
             conn = get_conn()
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                         (placa, marca, modelo, status, comb, km, dt_aq, dt_dev, valor, user, cidade, str(doc.name) if doc else None))
+            conn.execute("""INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                         (placa, marca, modelo, status, comb, km, dt_aq, dt_dev, valor, user, cidade, str(doc.name) if doc else None, str(foto.name) if foto else None))
             conn.commit()
             conn.close()
-            st.success("Veículo salvo com sucesso!")
+            st.success("Dados salvos com sucesso!")
 
 # --- NAVEGAÇÃO ---
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro Veículo", "Lançar Custo"])
-if menu == "Dashboard": exibir_dashboard()
-elif menu == "Cadastro Veículo": exibir_cadastro()
-else: st.write("Módulo de Custos...")
+st.sidebar.title("Navegação")
+menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
+if st.sidebar.button("Sair"): st.session_state['logado'] = False; st.rerun()
 
-st.sidebar.button("Sair", on_click=lambda: st.session_state.update({'logado': False}))
+if menu == "Dashboard": dashboard()
+elif menu == "Cadastro": cadastro()
