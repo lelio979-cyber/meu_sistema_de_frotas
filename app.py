@@ -38,11 +38,34 @@ if st.sidebar.button("Sair"):
     st.session_state['logado'] = False
     st.rerun()
 
-# Definindo o menu baseado no perfil
-menu_opcoes = ["Dashboard"]
-if st.session_state['perfil'] == 'admin':
-    menu_opcoes.append("Cadastro de Veículos")
-
+elif menu == "Dashboard":
+    st.title("📊 Painel de Controle (Dashboard)")
+    
+    # Busca dados no banco
+    df = pd.read_sql("SELECT * FROM veiculos", conn)
+    
+    if not df.empty:
+        # Colunas para KPIs (Indicadores)
+        col1, col2, col3 = st.columns(3)
+        
+        total_veiculos = len(df)
+        # Exemplo: se tivéssemos status, contaríamos aqui
+        col1.metric("Total de Veículos", total_veiculos)
+        col2.metric("Frota Disponível", total_veiculos) # Placeholder
+        col3.metric("KM Total da Frota", "0 km") # Placeholder
+        
+        st.divider()
+        
+        # Área de Análise Visual
+        st.subheader("Distribuição da Frota")
+        # Exemplo de gráfico se tivéssemos uma coluna 'marca' ou 'status'
+        # Aqui simulamos uma contagem simples
+        st.bar_chart(df['modelo'].value_counts())
+        
+        st.subheader("Lista Geral")
+        st.dataframe(df, use_container_width=True)
+    else:
+        st.info("Nenhum veículo cadastrado. Acesse o menu 'Cadastro' para iniciar.")
 menu = st.sidebar.radio("Navegação", menu_opcoes)
 
 # --- FUNÇÃO DE CADASTRO ---
