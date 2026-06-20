@@ -29,12 +29,12 @@ elif menu == "Cadastro Veículos":
         submit = st.form_submit_button("Salvar")
         if submit:
             try:
-                conn.execute("INSERT INTO veiculos (placa, modelo) VALUES (?,?)", (placa, modelo))
+                conn.execute("INSERT OR REPLACE INTO veiculos (placa, modelo) VALUES (?,?)", (placa, modelo))
                 conn.commit()
                 st.success("Veículo salvo!")
+                st.rerun() # <--- ISSO força o sistema a recarregar e mostrar o novo dado na tabela
             except Exception as e:
                 st.error(f"Erro ao salvar: {e}")
-
 # Exibir dados
 st.sidebar.divider()
 st.sidebar.write("Dados da Frota:")
