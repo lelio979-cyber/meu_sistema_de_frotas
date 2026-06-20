@@ -13,19 +13,31 @@ def get_conn():
 
 def init_db():
     conn = get_conn()
-    # Tabela robusta com todos os campos solicitados
+    # Cria tabelas se não existirem
     conn.execute("""CREATE TABLE IF NOT EXISTS veiculos (
         placa TEXT PRIMARY KEY, marca TEXT, modelo TEXT, status TEXT, 
         combustivel TEXT, km_inicial INTEGER, data_aquisicao DATE, 
         data_devolucao DATE, valor_locacao REAL, usuario TEXT, 
         cidade TEXT, doc_path TEXT)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS despesas (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, data DATE, categoria TEXT, valor REAL)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS usuarios (login TEXT PRIMARY KEY, senha TEXT, perfil TEXT)""")
-    conn.execute("INSERT OR IGNORE INTO usuarios VALUES ('admin', 'admin', 'admin')")
+    
+    # --- CHECK DE SEGURANÇA: Adiciona colunas se faltarem ---
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(veiculos)")
+    cols = [info[1] for info in cursor.fetchall()]
+    
+    colunas_necessarias = {
+        'marca': 'TEXT', 'modelo': 'TEXT', 'status': 'TEXT', 
+        'combustivel': 'TEXT', 'km_inicial': 'INTEGER', 'data_aquisicao': 'DATE',
+        'data_devolucao': 'DATE', 'valor_locacao': 'REAL', 'usuario': 'TEXT',
+        'cidade': 'TEXT', 'doc_path': 'TEXT'
+    }
+    
+    for col, tipo in colunas_necessarias.items():
+        if col not in cols:
+            conn.execute(f"ALTER TABLE veiculos ADD COLUMN {col} {tipo}")
+            
     conn.commit()
     conn.close()
-
 init_db()
 
 # --- LÓGICA DE LOGIN ---
