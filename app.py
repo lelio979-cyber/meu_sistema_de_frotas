@@ -49,17 +49,15 @@ with aba1:
     
     for _, row in df.iterrows():
         c1, c2, c3 = st.columns([3, 2, 1])
-        
-        # Formatação das datas
         rev_formatada = pd.to_datetime(row['data_revisao']).strftime('%d/%m/%Y')
         ipva_formatada = pd.to_datetime(row['data_ipva']).strftime('%d/%m/%Y')
-        
         c1.write(f"🚗 **{row['placa']}** | 🛠️ Rev: {rev_formatada} | 📄 IPVA: {ipva_formatada}")
         
-        # Alinhamento verificado: tudo que está dentro do 'for' deve estar no mesmo nível
+        # Alerta de Revisão
         if datetime.strptime(row['data_revisao'], '%Y-%m-%d') < datetime.now():
             c2.error("⚠️ Revisão Atrasada!")
-        
+            
+        # Botão de Excluir
         if c3.button("Excluir", key=f"del_{row['id']}"):
             conn.execute("DELETE FROM frota WHERE id=?", (row['id'],))
             conn.commit()
