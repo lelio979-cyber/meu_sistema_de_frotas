@@ -57,15 +57,29 @@ elif menu == "Manutenção":
     else: st.warning("Cadastre um veículo antes.")
 
 elif menu == "Dashboard":
-    st.subheader("Painel Geral")
+    st.subheader("Painel de Performance e Alertas")
+    
     conn = get_db()
-    df_v = pd.read_sql("SELECT * FROM veiculos", conn)
-    df_os = pd.read_sql("SELECT * FROM os", conn)
+    # Puxamos os dados dos veículos para verificar o KM
+    df_v = pd.read_sql("SELECT placa, modelo, km FROM veiculos", conn)
     conn.close()
-    st.write("### Veículos")
+    
+    st.write("### 🚨 Alertas de Revisão")
+    
+    # Lógica de Alerta (Exemplo: limite de 10.000 KM para revisão)
+    LIMITE_REVISAO = 10000 
+    
+    veiculos_criticos = df_v[df_v['km'] >= LIMITE_REVISAO]
+    
+    if not veiculos_criticos.empty:
+        for _, row in veiculos_criticos.iterrows():
+            st.error(f"⚠️ Atenção: O veículo {row['placa']} ({row['modelo']}) atingiu {row['km']} KM e precisa de revisão urgente!")
+    else:
+        st.success("✅ Todos os veículos estão com a manutenção em dia.")
+        
+    st.divider()
+    st.write("### Frota Geral")
     st.dataframe(df_v)
-    st.write("### Manutenções")
-    st.dataframe(df_os)
 
 # --- NOVO MÓDULO ---
 if menu == "Combustível":
