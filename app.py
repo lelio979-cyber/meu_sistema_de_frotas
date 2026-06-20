@@ -11,8 +11,8 @@ def ger_hash(s):
     return hashlib.sha256(s.encode()).hexdigest()
 
 def init_db():
-    # Atualizado para v10 para os novos campos robustos de checklist e fotos
-    conn = sqlite3.connect('frotas_v10.db', check_same_thread=False)
+    # Atualizado para v11 para acoplar o ecossistema completo de oficina e auditoria
+    conn = sqlite3.connect('frotas_v11.db', check_same_thread=False)
     c = conn.cursor()
     c.execute("CREATE TABLE IF NOT EXISTS usuarios "
               "(usuario TEXT PRIMARY KEY, senha_hash TEXT, perfil TEXT)")
@@ -36,10 +36,12 @@ def init_db():
     c.execute("CREATE TABLE IF NOT EXISTS financeiro "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, "
               "tipo_custo TEXT, valor REAL, data TEXT)")
+    # Tabela de Ordens de Serviço expandida com inteligência preditiva e arquivos
     c.execute("CREATE TABLE IF NOT EXISTS ordens_servico "
               "(id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, tipo TEXT, "
-              "descricao TEXT, custo REAL, status TEXT DEFAULT 'Pendente', "
-              "data TEXT)")
+              "descricao TEXT, custo REAL, status TEXT DEFAULT 'Aguardando Aprovação', "
+              "data TEXT, data_fim TEXT, natureza_manutencao TEXT, oficina_parceira TEXT, "
+              "pecas_substituidas TEXT, arquivo_nf BLOB)")
     if c.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0] == 0:
         c.execute("INSERT INTO usuarios VALUES ('admin', ?, 'Gestor')", 
                   (ger_hash("admin123"),))
@@ -618,27 +620,158 @@ elif menu == "⛽ Abastecimento":
 
 # --- MÓDULO: ORDENS DE SERVIÇO ---
 elif menu == "🛠️ Ordens de Serviço":
-    st.title("🛠️ Gestão de Ordens de Serviço (O.S.)")
-    t1, t2 = st.tabs(["Abrir Nova O.S.", "Histórico"])
-    df_l = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+    st.title("🛠️ Central de Engenharia de Manutenção & O.S.")
+    st.markdown("Gerencie o fluxo de oficina, aprove orçamentos, calcule o downtime e audite notas fiscais.")
+    
+    # 1. MÉTRICAS E INDICADORES DO ECOSSISTEMA
+    df_os_total = pd.read_sql_query("SELECT status, custo, natureza_manutencao FROM ordens_servico", conn)
+    
+    c_os1, c_os2, c_os3, c_os4 = st.columns(4)
+    with c_os1:
+        pendentes = len(df_os_total[df_os_total["status"] == "Aguardando Aprovação"])
+        st.metric("Aguardando Aprovação", f"{pendentes} O.S.")
+    with c_os2:
+        oficina = len(df_os_total[df_os_total["status"] == "Em Execução"])
+        st.metric("Veículos na Oficina", f"{oficina} Carros")
+    with c_os3:
+        investido = df_os_total["custo"].sum()
+        st.metric("Gasto Total Acumulado", f"R$ {investido:,.2f}".replace(",", "X").replace(".", ",").replace("X", "."))
+    with c_os4:
+        if len(df_os_total) > 0:
+            prev_count = len(df_os_total[df_os_total["natureza_manutencao"] == "Preventiva"])
+            perc_prev = (prev_count / len(df_os_total)) * 100
+            st.metric("Índice de Preventiva", f"{perc_prev:.1f}%", help="O ideal de mercado é estar acima de 70%")
+        else:
+            st.metric("Índice de Preventiva", "0%")
+
+    t1, t2, t3 = st.tabs(["⚡ Fluxo de Execução e Fechamento", "➕ Abertura Manual de O.S.", "📜 Histórico & Auditoria"])
+    
+    # TAB 1: FLUXO DE EXECUÇÃO E FECHAMENTO
     with t1:
-        if not df_l.empty:
-            with st.form("f_os", clear_on_submit=True):
-                pl = st.selectbox("Veículo", df_l['placa'])
-                tp = st.selectbox("Tipo", ["Preventiva", "Corretiva"])
-                cst = st.number_input("Custo (R$)", min_value=0.0, step=50.0)
-                desc = st.text_area("Descrição")
-                if st.form_submit_button("Emitir O.S."):
-                    dt = datetime.now().strftime("%Y-%m-%d")
-                    conn.cursor().execute("INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data) VALUES (?, ?, ?, ?, 'Pendente', ?)", (pl, tp, desc, cst, dt))
-                    conn.commit(); st.success("O.S. registrada!"); st.rerun()
-        else: st.warning("Cadastre um veículo primeiro na aba 'Cadastros'.")
+        st.subheader("Gerenciamento de Ordens Ativas")
+        df_ativas = pd.read_sql_query(
+            "SELECT id, placa, tipo, descricao, status, natureza_manutencao as natureza, data FROM ordens_servico WHERE status != 'Finalizada'", conn
+        )
+        
+        if not df_ativas.empty:
+            st.dataframe(df_ativas, use_container_width=True, hide_index=True)
+            
+            st.markdown("##### ⚙️ Atualizar Status da O.S. Selecionada")
+            with st.form("form_tramite_os"):
+                id_sel = st.selectbox("Selecione a O.S. pelo ID", df_ativas['id'])
+                
+                # Coleta a placa e dados da O.S. escolhida para validações e automações
+                dados_os_sel = df_ativas[df_ativas['id'] == id_sel].iloc[0]
+                placa_os = dados_os_sel['placa']
+                tipo_os = dados_os_sel['tipo']
+                
+                c_tr1, c_tr2 = st.columns(2)
+                with c_tr1:
+                    novo_status = st.selectbox("Novo Status Operacional", ["Aguardando Aprovação", "Em Execução", "Finalizada"])
+                    custo_final = st.number_input("Custo Final do Serviço (R$)", min_value=0.0, value=0.0, step=10.0)
+                    oficina_parc = st.text_input("Oficina / Fornecedor Executante")
+                with c_tr2:
+                    natureza_m = st.selectbox("Natureza", ["Preventiva", "Corretiva"])
+                    pecas_txt = st.text_area("Peças Substituídas (Componentes e Marcas)")
+                    up_nf = st.file_uploader("🧾 Anexar PDF/Foto da Nota Fiscal ou Orçamento", type=["pdf", "png", "jpg"])
+                
+                # ALERTA DE RECORRÊNCIA CRÍTICA (Garantia Preventiva)
+                recorrencias = pd.read_sql_query(
+                    f"SELECT data, oficina_parceira FROM ordens_servico WHERE placa='{placa_os}' AND tipo='{tipo_os}' AND status='Finalizada'", conn
+                )
+                if not recorrencias.empty:
+                    st.error(f"⚠️ ALERTA DE GARANTIA: O veículo `{placa_os}` já realizou manutenção do tipo `{tipo_os}` anteriormente em {recorrencias['data'].values[0]} na oficina '{recorrencias['oficina_parceira'].values[0]}'. Verifique a cobertura de garantia antes de aprovar!")
+
+                if st.form_submit_button("💾 Salvar Alterações de Status"):
+                    nf_bytes = up_nf.read() if up_nf else None
+                    hoje_str = datetime.now().strftime("%Y-%m-%d")
+                    
+                    # Atualiza a O.S.
+                    conn.cursor().execute(
+                        "UPDATE ordens_servico SET status=?, custo=?, natureza_manutencao=?, oficina_parceira=?, pecas_substituidas=?, arquivo_nf=COALESCE(?, arquivo_nf), data_fim=? "
+                        "WHERE id=?", 
+                        (novo_status, custo_final, natureza_m, oficina_parc, pecas_txt, nf_bytes, hoje_str, id_sel)
+                    )
+                    
+                    # AUTOMAÇÃO 1: Se mudou para 'Em Execução', joga o status do carro para 'Em Manutenção'
+                    if novo_status == "Em Execução":
+                        conn.cursor().execute("UPDATE veiculos SET status='Em Manutenção' WHERE placa=?", (placa_os,))
+                        
+                    # AUTOMAÇÃO 2: Se 'Finalizada', lança no financeiro e libera o veículo de volta para a frota ativa
+                    elif novo_status == "Finalizada":
+                        conn.cursor().execute("UPDATE veiculos SET status='Disponível' WHERE placa=?", (placa_os,))
+                        if custo_final > 0:
+                            conn.cursor().execute(
+                                "INSERT INTO financeiro (placa, tipo_custo, valor, data) VALUES (?, 'Manutenção Oficina', ?, ?)",
+                                (placa_os, custo_final, hoje_str)
+                            )
+                    
+                    conn.commit()
+                    st.success(f"✅ O.S. #{id_sel} atualizada! Regras operacionais de frota aplicadas.")
+                    st.rerun()
+        else:
+            st.success("🎉 Todas as Ordens de Serviço estão resolvidas! Nenhuma O.S. pendente ou em oficina.")
+
+    # TAB 2: ABERTURA MANUAL DE O.S.
     with t2:
-        df_os = pd.read_sql_query("SELECT * FROM ordens_servico ORDER BY id DESC", conn)
-        if not df_os.empty:
-            st.dataframe(df_os, use_container_width=True)
-        else: st.info("Nenhuma O.S. gerada.")
-# --- MÓDULO: AUDITORIA DE CHECKLISTS ---
+        st.subheader("Abertura Manual de Ordem de Serviço")
+        df_veic_os = pd.read_sql_query("SELECT placa FROM veiculos", conn)
+        
+        if not df_veic_os.empty:
+            with st.form("form_abertura_os"):
+                c_ab1, c_ab2 = st.columns(2)
+                with c_ab1:
+                    p_os = st.selectbox("Selecione o Veículo", df_veic_os['placa'])
+                    t_os = st.selectbox("Tipo de Falha/Manutenção", ["Mecânica", "Elétrica", "Pneus", "Funilaria/Pintura", "Acessórios/Vidros", "Revisão Periódica"])
+                with c_ab2:
+                    nat_os = st.selectbox("Natureza Inicial", ["Preventiva", "Corretiva"])
+                    data_ab = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                desc_os = st.text_area("Descrição do Defeito / Motivo do Direcionamento")
+                
+                if st.form_submit_button("🧱 Abrir Ordem de Serviço"):
+                    if not desc_os:
+                        st.error("❌ Descreva o defeito antes de gerar a Ordem de Serviço.")
+                    else:
+                        conn.cursor().execute(
+                            "INSERT INTO ordens_servico (placa, tipo, descricao, custo, status, data, natureza_manutencao) VALUES (?,?,?, 0.0, 'Aguardando Aprovação', ?,?)",
+                            (p_os, t_os, desc_os, data_ab, nat_os)
+                        )
+                        conn.commit()
+                        st.success(f"✅ Ordem de Serviço aberta com sucesso para o veículo {p_os}!")
+                        st.rerun()
+        else:
+            st.info("Nenhum veículo cadastrado na base.")
+
+    # TAB 3: HISTÓRICO & AUDITORIA
+    with t3:
+        st.subheader("Histórico Geral de Manutenções Executadas")
+        df_historico = pd.read_sql_query(
+            "SELECT id as ID, placa as Placa, tipo as Tipo, descricao as Descrição, custo as [Custo (R$)], "
+            "natureza_manutencao as Natureza, oficina_parceira as Oficina, data as [Data Abertura], data_fim as [Data Fim], "
+            "pecas_substituidas as Peças FROM ordens_servico WHERE status='Finalizada' ORDER BY id DESC", conn
+        )
+        
+        if not df_historico.empty:
+            # Cálculos de Downtime (Tempo de Parada) em Python na leitura
+            df_historico["Data Abertura"] = pd.to_datetime(df_historico["Data Abertura"]).dt.date
+            df_historico["Data Fim"] = pd.to_datetime(df_historico["Data Fim"]).dt.date
+            df_historico["Dias Parado (Downtime)"] = (df_historico["Data Fim"] - df_historico["Data Abertura"]).dt.days
+            df_historico["Dias Parado (Downtime)"] = df_historico["Dias Parado (Downtime)"].apply(lambda x: f"{x} dias" if x >= 0 else "Mesmo dia")
+            
+            st.dataframe(df_historico, use_container_width=True, hide_index=True)
+            
+            st.markdown("---")
+            st.markdown("##### 📥 Auditoria Documental (Download de Notas Fiscais)")
+            id_doc_os = st.selectbox("Selecione a O.S. para extrair a Nota Fiscal", df_historico['ID'].tolist())
+            
+            res_nf = conn.cursor().execute("SELECT arquivo_nf FROM ordens_servico WHERE id=?", (id_doc_os,)).fetchone()
+            if res_nf and res_nf[0]:
+                st.download_button(label="🧾 Baixar Nota Fiscal / Comprovante", data=res_nf[0], file_name=f"NF_OS_Numero_{id_doc_os}.pdf", mime="application/octet-stream")
+            else:
+                st.info("Esta Ordem de Serviço não teve nenhum comprovante fiscal anexado no fechamento.")
+        else:
+            st.info("Nenhuma manutenção foi finalizada no sistema até o momento.")# --- MÓDULO: AUDITORIA DE CHECKLISTS ---
 elif menu == "📋 Auditoria de Checklists":
     st.title("📋 Painel de Auditoria de Checklists")
     st.markdown("Consulte e filtre todos os históricos de vistorias realizados pelos operadores e gestores.")
