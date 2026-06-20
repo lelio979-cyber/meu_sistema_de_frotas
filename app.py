@@ -31,6 +31,15 @@ class DatabaseManager:
             """CREATE TABLE IF NOT EXISTS manutencao (id INTEGER PRIMARY KEY, placa TEXT, status TEXT, custo REAL, aprovado BOOLEAN)""",
             """CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, acao TEXT, tabela TEXT, data_hora TIMESTAMP)"""
         ]
+        def setup_user_table():
+    conn = get_db()
+    conn.execute("""CREATE TABLE IF NOT EXISTS usuarios (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        login TEXT UNIQUE,
+        senha TEXT,
+        modulos_permissao TEXT)""") # Ex: "Dashboard,Cadastro,Manutencao"
+    conn.commit()
+    conn.close()
         for q in queries: self.execute_query(q)
 
 db = DatabaseManager()
