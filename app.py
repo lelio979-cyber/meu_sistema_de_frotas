@@ -469,6 +469,42 @@ elif menu == "📍 Atualizar KM":
             
     else:
         st.warning("⚠️ Nenhum veículo localizado na base de dados. Cadastre um veículo primeiro na aba 'Cadastros'.")
+
+# --- MÓDULO: GERENCIAMENTO DE USUÁRIOS (APENAS GESTOR) ---
+elif menu == "👥 Gerenciamento de Usuários":
+    if st.session_state.get('perfil') != 'Gestor':
+        st.error("❌ Acesso negado. Esta tela é exclusiva para Administradores/Gestores.")
+    else:
+        st.title("👥 Controle de Acessos e Usuários")
+        st.markdown("Cadastre novos operadores, altere níveis de privilégio e audite quem acessa o sistema.")
+        
+        t_cad, t_list = st.tabs(["➕ Cadastrar Usuário", "📋 Usuários Ativos"])
+        
+        with t_cad:
+            with st.form("f_cadastro_usuario"):
+                novo_user = st.text_input("Nome de Usuário (Login)", placeholder="ex: joao.silva").strip().lower()
+                nova_senha = st.text_input("Senha Inicial", type="password")
+                perfil_sel = st.selectbox("Nível de Permissão", ["Operador", "Visualização", "Gestor"])
+                
+                if st.form_submit_button("💾 Criar Novo Usuário"):
+                    if not novo_user or not nova_senha:
+                        st.error("❌ Preencha o usuário e a senha.")
+                    else:
+                        try:
+                            # ger_hash é a sua função existente de criptografia de senha
+                            senha_crip = ger_hash(nova_senha) 
+                            conn.cursor().execute("INSERT INTO usuarios VALUES (?, ?, ?)", (novo_user, senha_crip, perfil_sel))
+                            conn.commit()
+                            st.success(f"🎉 Usuário '{novo_user}' cadastrado como '{perfil_sel}'!")
+                            st.rerun()
+                        except sqlite3.IntegrityError:
+                            st.error("❌ Este nome de usuário já está em uso.")
+                            
+        with t_list:
+            df_users = pd.read_sql_query("SELECT usuario as [Usuário], perfil as [Perfil de Acesso] FROM usuarios", conn)
+            st.dataframe(df_users, use_container_width=True, hide_index=True)
+
+
 # --- MÓDULO: CHECKLIST DE CAMPO EXPANDIDO ---
 elif menu == "📝 Checklist de Campo":
     st.title("📝 Vistoria e Checklist Metódico de Campo")
