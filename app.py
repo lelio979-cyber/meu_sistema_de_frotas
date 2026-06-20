@@ -92,14 +92,19 @@ def cadastro():
         user = c1.text_input("Usuário")
         cidade = c2.text_input("Cidade")
         
+        # CAMPO NOVO: Upload do CRLV
+        crlv = st.file_uploader("Upload do CRLV (PDF ou Imagem)", type=['pdf', 'jpg', 'png'])
+        
         if st.form_submit_button("Salvar Ativo"):
             conn = get_conn()
-            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?)",
-                         (placa, marca, modelo, status, comb, km, dt_aq, valor, user, cidade))
+            # Salva o nome do arquivo no banco
+            crlv_nome = crlv.name if crlv else None
+            
+            conn.execute("INSERT OR REPLACE INTO veiculos VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                         (placa, marca, modelo, status, comb, km, dt_aq, valor, user, cidade, crlv_nome))
             conn.commit()
             conn.close()
-            st.success("Ativo registrado com sucesso!")
-
+            st.success("Ativo registrado com o CRLV!")
 # --- NAVEGAÇÃO ---
 st.sidebar.title(f"Olá, {st.session_state['perfil']}")
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
