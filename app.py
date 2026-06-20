@@ -38,60 +38,33 @@ if not st.session_state['logado']:
         if perfil:
             st.session_state['logado'] = True; st.session_state['perfil'] = perfil[0]; st.rerun()
     st.stop()
-# --- LOGIN (Funcionalidade mantida) ---
-if 'logado' not in st.session_state: st.session_state['logado'] = False
-if not st.session_state['logado']:
-    st.title("🔐 Login SGF-Pro")
-    u = st.text_input("Usuário"); s = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        conn = get_conn()
-        perfil = conn.execute("SELECT perfil FROM usuarios WHERE login=? AND senha=?", (u, s)).fetchone()
-        conn.close()
-        if perfil:
-            st.session_state['logado'] = True; st.session_state['perfil'] = perfil[0]; st.rerun()
-    st.stop()
 
-# --- DASHBOARD (Com métricas e gráficos) ---
+# --- DASHBOARD COM EDIÇÃO ---
 def dashboard():
     st.title("📊 Painel Estratégico de Frota")
     conn = get_conn()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_d = pd.read_sql("SELECT * FROM despesas", conn)
-    conn.close()
     
-    # 1. LINHA DE KPIs (Indicadores Rápidos)
+    # KPIs
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Custo Total", f"R$ {df_d['valor'].sum():,.2f}")
-    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}", delta=f"{len(df_v)} Total")
-    c3.metric("Ticket Médio/Veíc", f"R$ {df_d['valor'].sum()/len(df_v) if not df_v.empty else 0:,.2f}")
-    c4.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
+    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}")
+    c3.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
+    c4.metric("Total de Ativos", len(df_v))
     
     st.markdown("---")
     
-    # 2. SEÇÃO DE ANÁLISES (Layout Grid)
-    col_left, col_right = st.columns([2, 1])
+    # Tabela Editável
+    st.subheader("Gerenciamento de Ativos")
+    edited_df = st.data_editor(df_v, num_rows="dynamic", use_container_width=True)
     
-    with col_left:
-        st.subheader("Tendência de Custos por Categoria")
-        if not df_d.empty:
-            fig = px.bar(df_d, x='data', y='valor', color='categoria', barmode='group')
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Aguardando lançamentos de despesas.")
-
-    with col_right:
-        st.subheader("Status dos Ativos")
-        if not df_v.empty:
-            fig = px.pie(df_v, names='status', hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
-            st.plotly_chart(fig, use_container_width=True)
-        
-    # 3. MESA DE APOIO (Alertas e Detalhes)
-    st.subheader("Alertas de Operação e Logística")
-    if not df_v.empty:
-        # Filtra veículos com km alto ou vencimento (exemplo lógico)
-        st.dataframe(df_v[['placa', 'modelo', 'cidade', 'status', 'data_devolucao']], use_container_width=True)
+    if st.button("Salvar Alterações na Tabela"):
+        # Lógica para sobrescrever as mudanças
+        edited_df.to_sql('veiculos', conn, if_exists='replace', index=False)
+        st.success("Dados atualizados!")
     
-    #
+    conn.close()
 
 # --- CADASTRO ---
 def cadastro():
@@ -121,12 +94,3 @@ def cadastro():
 menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
 if menu == "Dashboard": dashboard()
 elif menu == "Cadastro": cadastro()
-
-# --- NAVEGAÇÃO (Barra lateral) ---
-st.sidebar.title(f"Olá, {st.session_state['perfil']}")
-menu = st.sidebar.radio("Módulos", ["Dashboard", "Cadastro", "Lançar Custo"])
-if st.sidebar.button("Sair"): st.session_state['logado'] = False; st.rerun()
-
-if menu == "Dashboard": dashboard()
-elif menu == "Cadastro": cadastro()
-elif menu == "Lançar Custo": lancar_custo()
