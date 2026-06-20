@@ -29,7 +29,22 @@ def setup_db():
     conn.close()
 
 setup_db()
+# 1. LÓGICA DE LOGIN (SEGURANÇA)
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
 
+if not st.session_state["autenticado"]:
+    st.subheader("🔒 Acesso Restrito")
+    senha_input = st.text_input("Digite a senha de acesso:", type="password")
+    if st.button("Entrar"):
+        if senha_input == "1234": # Troque '1234' pela sua senha secreta
+            st.session_state["autenticado"] = True
+            st.rerun()
+        else:
+            st.error("Senha incorreta!")
+    st.stop() # Interrompe a execução do resto do app se não estiver logado
+
+# A partir daqui, o código só roda se st.session_state["autenticado"] for True
 # 3. INTERFACE PRINCIPAL
 st.title("🚛 SGF-Fleet Elite Pro")
 menu = st.sidebar.radio("Navegação", ["Cadastro", "Manutenção", "Dashboard"])
