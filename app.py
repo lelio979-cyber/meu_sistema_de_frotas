@@ -45,30 +45,45 @@ if not st.session_state['logado']:
 
 # --- DASHBOARD (Com métricas e gráficos) ---
 def dashboard():
-    st.title("📊 Dashboard Executivo - Visão Consolidada")
+    st.title("📊 Painel Estratégico de Frota")
     conn = get_conn()
     df_v = pd.read_sql("SELECT * FROM veiculos", conn)
     df_d = pd.read_sql("SELECT * FROM despesas", conn)
     conn.close()
     
-    if not df_v.empty:
-        # KPIs
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Custo Total", f"R$ {df_d['valor'].sum():,.2f}")
-        c2.metric("Frota Ativa", len(df_v[df_v['status']=='Ativo']))
-        c3.metric("KM Média", f"{df_v['km_inicial'].mean():.0f}")
-        c4.metric("Manutenções", len(df_v[df_v['status']=='Manutenção']))
-        
-        st.divider()
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("Distribuição de Custos")
-            fig = px.pie(df_d, values='valor', names='categoria', hole=0.4)
+    # 1. LINHA DE KPIs (Indicadores Rápidos)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Custo Total", f"R$ {df_d['valor'].sum():,.2f}")
+    c2.metric("Frota Ativa", f"{len(df_v[df_v['status']=='Ativo'])}", delta=f"{len(df_v)} Total")
+    c3.metric("Ticket Médio/Veíc", f"R$ {df_d['valor'].sum()/len(df_v) if not df_v.empty else 0:,.2f}")
+    c4.metric("Manutenções", f"{len(df_v[df_v['status']=='Manutenção'])}")
+    
+    st.markdown("---")
+    
+    # 2. SEÇÃO DE ANÁLISES (Layout Grid)
+    col_left, col_right = st.columns([2, 1])
+    
+    with col_left:
+        st.subheader("Tendência de Custos por Categoria")
+        if not df_d.empty:
+            fig = px.bar(df_d, x='data', y='valor', color='categoria', barmode='group')
             st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            st.subheader("Frota por Cidade")
-            st.bar_chart(df_v['cidade'].value_counts())
-    else: st.info("Nenhum dado para exibir.")
+        else:
+            st.info("Aguardando lançamentos de despesas.")
+
+    with col_right:
+        st.subheader("Status dos Ativos")
+        if not df_v.empty:
+            fig = px.pie(df_v, names='status', hole=0.6, color_discrete_sequence=px.colors.qualitative.Pastel)
+            st.plotly_chart(fig, use_container_width=True)
+        
+    # 3. MESA DE APOIO (Alertas e Detalhes)
+    st.subheader("Alertas de Operação e Logística")
+    if not df_v.empty:
+        # Filtra veículos com km alto ou vencimento (exemplo lógico)
+        st.dataframe(df_v[['placa', 'modelo', 'cidade', 'status', 'data_devolucao']], use_container_width=True)
+    
+    #
 
 # --- CADASTRO (Com todos os campos) ---
 def cadastro():
