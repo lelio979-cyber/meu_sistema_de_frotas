@@ -4,12 +4,11 @@ import sqlite3
 import plotly.express as px
 from datetime import datetime
 
-# --- CONFIGURAÇÃO GLOBAL ---
+# --- CONFIGURAÇÃO E BANCO ---
 st.set_page_config(page_title="SGF-Pro Elite", layout="wide")
 
 def init_db():
     conn = sqlite3.connect('frotas_pro.db', check_same_thread=False)
-    # Criar todas as tabelas se não existirem
     conn.execute("CREATE TABLE IF NOT EXISTS veiculos (placa TEXT PRIMARY KEY, modelo TEXT, km_atual INTEGER)")
     conn.execute("CREATE TABLE IF NOT EXISTS motoristas (nome TEXT PRIMARY KEY, cnh TEXT)")
     conn.execute("CREATE TABLE IF NOT EXISTS checklists (id INTEGER PRIMARY KEY AUTOINCREMENT, placa TEXT, motorista TEXT, km INTEGER, data TEXT)")
@@ -20,9 +19,33 @@ def init_db():
 
 conn = init_db()
 
-# --- MÓDULOS (Refatorados para alta performance) ---
+# --- MÓDULO DE ALERTAS (INTEGRADO) ---
+def mod_alertas_inteligentes():
+    st.subheader("🚨 Painel de Alertas Operacionais")
+    
+    # Lógica de análise de dados
+    os_pendentes = pd.read_sql("SELECT COUNT(*) FROM ordens_servico WHERE status = 'Aberta'", conn).iloc[0,0]
+    veiculos_alerta = pd.read_sql("SELECT placa FROM veiculos WHERE km_atual > 9000", conn)
+    
+    col_a, col_b = st.columns(2)
+    
+    if os_pendentes > 0:
+        col_a.warning(f"⚠️ {os_pendentes} O.S. aguardando finalização.")
+    else:
+        col_a.success("✅ Nenhuma O.S. pendente.")
+        
+    if not veiculos_alerta.empty:
+        col_b.error(f"🔧 {len(veiculos_alerta)} veículo(s) próximo da revisão!")
+    else:
+        col_b.success("✅ Frota com revisão em dia.")
+
+# --- MÓDULOS ---
 def mod_dashboard():
     st.header("📊 Painel Estratégico")
+    # Chamada do novo painel de alertas
+    mod_alertas_inteligentes()
+    
+    st.markdown("---")
     col1, col2, col3 = st.columns(3)
     col1.metric("Custo Total", "R$ 28.400", "5%")
     col2.metric("Veículos Ativos", "15", "0")
@@ -32,6 +55,8 @@ def mod_dashboard():
     if not df.empty:
         fig = px.bar(df, x='data', y='valor', title="Tendência de Gastos")
         st.plotly_chart(fig, use_container_width=True)
+
+# ... (Módulos de mod_veiculos, mod_motoristas, mod_checklist, mod_os, mod_abastecimento, mod_auditoria permanecem iguais) ...
 
 def mod_veiculos():
     st.header("🚗 Gestão de Veículos")
@@ -48,7 +73,7 @@ def mod_motoristas():
         n = st.text_input("Nome"); c = st.text_input("CNH")
         if st.form_submit_button("Salvar"):
             conn.execute("INSERT OR REPLACE INTO motoristas VALUES (?,?)", (n, c))
-            conn.commit(); st.success("Motorista salvo!")
+            conn.commit(); st.success("Salvo!")
     st.dataframe(pd.read_sql("SELECT * FROM motoristas", conn))
 
 def mod_checklist():
@@ -79,27 +104,24 @@ def mod_abastecimento():
 
 def mod_auditoria():
     st.header("📋 Auditoria Geral")
-    st.write("Registros de Checklists:")
     st.dataframe(pd.read_sql("SELECT * FROM checklists", conn))
-    st.write("Registros de Custos:")
     st.dataframe(pd.read_sql("SELECT * FROM financeiro", conn))
 
 # --- NAVEGAÇÃO ---
 def main():
-    st.sidebar.title("SGF-Pro V18")
+    st.sidebar.title("SGF-Pro V19")
     menu = st.sidebar.radio("Módulos", [
         "📊 Dashboard", "🚗 Veículos", "👤 Motoristas", 
         "📝 Checklist", "🛠️ O.S.", "⛽ Abastecimento", "📋 Auditoria"
     ])
     
-    # Executa a função baseada na escolha
-    if menu == "📊 Dashboard": mod_dashboard()
-    elif menu == "🚗 Veículos": mod_veiculos()
-    elif menu == "👤 Motoristas": mod_motoristas()
-    elif menu == "📝 Checklist": mod_checklist()
-    elif menu == "🛠️ O.S.": mod_os()
-    elif menu == "⛽ Abastecimento": mod_abastecimento()
-    elif menu == "📋 Auditoria": mod_auditoria()
+    func = {
+        "📊 Dashboard": mod_dashboard, "🚗 Veículos": mod_veiculos, 
+        "👤 Motoristas": mod_motoristas, "📝 Checklist": mod_checklist, 
+        "🛠️ O.S.": mod_os, "⛽ Abastecimento": mod_abastecimento, 
+        "📋 Auditoria": mod_auditoria
+    }
+    func[menu]()
 
 if __name__ == "__main__":
     main()
