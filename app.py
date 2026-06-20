@@ -29,6 +29,16 @@ def setup_db():
     conn.close()
 
 setup_db()
+def setup_db():
+    conn = get_db()
+    # ... (suas tabelas existentes) ...
+    conn.execute("""CREATE TABLE IF NOT EXISTS logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, 
+        acao TEXT, 
+        tabela TEXT, 
+        data_hora TIMESTAMP DEFAULT CURRENT_TIMESTAMP)""")
+    conn.commit()
+    conn.close()
 # 1. LÓGICA DE LOGIN (SEGURANÇA)
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
