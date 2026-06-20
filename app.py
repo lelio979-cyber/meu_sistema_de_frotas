@@ -84,7 +84,7 @@ if not st.session_state['autenticado']:
                 (usuario_input,)
             ).fetchone()
             
-            if res and verificar_senha(senha_input, res[0]): # verificar_senha ou ger_hash dependendo da sua criptografia
+            if res and ger_hash(senha_input) == res[0]:
                 st.session_state['autenticado'] = True
                 st.session_state['u_log'] = usuario_input
                 st.session_state['perfil'] = res[1] # Armazena se é Gestor, Operador ou Visualização
