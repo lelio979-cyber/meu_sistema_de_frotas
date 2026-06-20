@@ -4,35 +4,35 @@ import os
 
 FILE_NAME = "dados_frota.xlsx"
 
-# Verifica se o arquivo existe
+# --- BLOCO DE CRIAÇÃO AUTOMÁTICA ---
 if not os.path.exists(FILE_NAME):
-    st.error(f"O arquivo {FILE_NAME} não foi encontrado na pasta! Por favor, crie-o manualmente com as abas 'Veiculos' e 'Manutencao'.")
-    st.stop()
+    # Cria o arquivo com as abas necessárias se ele não existir
+    with pd.ExcelWriter(FILE_NAME, engine='openpyxl') as writer:
+        pd.DataFrame(columns=['Placa', 'Modelo', 'Status']).to_excel(writer, sheet_name='Veiculos', index=False)
+        pd.DataFrame(columns=['Placa', 'Servico', 'Custo', 'Data']).to_excel(writer, sheet_name='Manutencao', index=False)
+    st.info("Arquivo Excel criado automaticamente!")
 
-st.set_page_config(page_title="SGF Excel Pro", layout="wide")
-st.title("🚛 SGF-Fleet Pro")
+st.set_page_config(page_title="SGF Elite", layout="wide")
+st.title("🚛 Gestão de Frotas (Excel Base)")
 
-menu = st.sidebar.radio("Navegação", ["Frota", "Manutenção"])
+# Carrega os dados
+df_veiculos = pd.read_excel(FILE_NAME, sheet_name="Veiculos")
 
-# Carregamento seguro
-try:
-    df_veiculos = pd.read_excel(FILE_NAME, sheet_name="Veiculos")
-    df_manut = pd.read_excel(FILE_NAME, sheet_name="Manutencao")
-except Exception as e:
-    st.error(f"Erro ao ler o Excel: {e}")
-    st.stop()
+# Interface
+st.subheader("Cadastro de Veículos")
+with st.form("form_veic", clear_on_submit=True):
+    placa = st.text_input("Placa").upper()
+    modelo = st.text_input("Modelo")
+    if st.form_submit_button("Salvar"):
+        novo = pd.DataFrame({'Placa': [placa], 'Modelo': [modelo], 'Status': ['Disponível']})
+        df_atualizado = pd.concat([df_veiculos, novo], ignore_index=True)
+        
+        # Salva de volta no Excel
+        with pd.ExcelWriter(FILE_NAME, engine='openpyxl', mode='w') as writer:
+            df_atualizado.to_excel(writer, sheet_name="Veiculos", index=False)
+            pd.read_excel(FILE_NAME, sheet_name="Manutencao").to_excel(writer, sheet_name="Manutencao", index=False)
+        
+        st.success("Veículo cadastrado!")
+        st.rerun()
 
-if menu == "Frota":
-    st.header("Gestão de Veículos")
-    with st.form("cad_veic"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        if st.form_submit_button("Cadastrar"):
-            novo_dado = pd.DataFrame({'Placa': [placa], 'Modelo': [modelo], 'Status': ['Disponível']})
-            df_novo = pd.concat([df_veiculos, novo_dado], ignore_index=True)
-            
-            with pd.ExcelWriter(FILE_NAME, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-                df_novo.to_excel(writer, sheet_name="Veiculos", index=False)
-            st.success("Salvo!")
-            st.rerun()
-    st.dataframe(df_veiculos, use_container_width=True)
+st.dataframe(df_veiculos, use_container_width=True)
