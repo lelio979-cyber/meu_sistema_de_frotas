@@ -58,36 +58,38 @@ def init_db():
 conn = init_db()
 
 # ==============================================================================
-# --- SISTEMA DE AUTENTICAÇÃO E CONTROLE DE ACESSOS (SESSÃO BLINDADA) ---
+# ==============================================================================
+# --- SISTEMA DE AUTENTICAÇÃO (LOGIN CENTRAL CORRIGIDO) ---
 # ==============================================================================
 
-# Garante que as variáveis de controle existam no estado do Streamlit
-if 'autenticado' not in st.session_state:
-    st.session_state['autenticado'] = False
-if 'u_log' not in st.session_state:
-    st.session_state['u_log'] = None
-if 'perfil' not in st.session_state:
-    st.session_state['perfil'] = 'Visualização'
-
-# Se o usuário não estiver logado, exibe a tela de login
-if not st.session_state['autenticado']:
+# Se o utilizador não estiver autenticado, renderiza APENAS o formulário de login
+if not st.session_state.get('autenticado'):
     st.title("🔐 Acesso ao Sistema de Frotas")
     
-    with st.form("form_login_central"):
+    # Abertura correta do formulário
+    with st.form(key="form_login_central"):
         usuario_input = st.text_input("Usuário").strip().lower()
         senha_input = st.text_input("Senha", type="password")
         
-        # --- SUBSTITUA O BLOCO DO BOTÃO POR ESTE PADRÃO LIMPÃO ---
-if st.form_submit_button("Salvar Registro"):
-    if st.session_state.get('perfil') == "Visualização":
-        st.error("❌ Acesso Negado: Seu perfil de 'Visualização' não permite realizar alterações ou cadastros.")
-    else:
-        # --- O SEU CÓDIGO ATUAL DE INSERÇÃO NO BANCO FICA AQUI EMBAIXO ---
-        # Exemplo:
-        # conn.cursor().execute("INSERT INTO ...")
-        # conn.commit()
-        st.success("Registro salvo com sucesso!")
-        st.rerun()
+        # O botão PRECISA de estar aqui dentro, com o nome correto para login
+        botao_login = st.form_submit_button("Entrar")
+        
+        if botao_login:
+            res = conn.cursor().execute(
+                "SELECT senha_hash, perfil FROM usuarios WHERE usuario = ?", 
+                (usuario_input,)
+            ).fetchone()
+            
+            if res and ger_hash(senha_input) == res[0]:
+                st.session_state['autenticado'] = True
+                st.session_state['u_log'] = usuario_input
+                st.session_state['perfil'] = res[1]
+                st.success("🎉 Autenticado com sucesso!")
+                st.rerun()
+            else:
+                st.error("❌ Usuário ou senha incorretos.")
+                
+    st.stop() # Garante que o Streamlit não lê mais nada abaixo enquanto não logar
 # ==============================================================================
 # --- CONSTRUÇÃO DO MENU BASEADO NO PERFIL ATIVO ---
 # ==============================================================================
