@@ -23,6 +23,22 @@ def check_password():
 if not check_password():
     st.stop()
 
+# Exemplo para o módulo de Abastecimento
+def registrar_abastecimento(veiculo_id, litros, valor, km):
+    conn.execute("""
+        INSERT INTO abastecimento (id_veiculo, litros, valor, km, data) 
+        VALUES (?, ?, ?, ?, ?)
+    """, (veiculo_id, litros, valor, km, datetime.now().strftime("%Y-%m-%d")))
+    conn.commit()
+
+# Exemplo para o módulo de Ordem de Serviço
+def criar_os(veiculo_id, servico, pecas, custo):
+    conn.execute("""
+        INSERT INTO manutencao (id_veiculo, servico, pecas, custo, data) 
+        VALUES (?, ?, ?, ?, ?)
+    """, (veiculo_id, servico, pecas, custo, datetime.now().strftime("%Y-%m-%d")))
+    conn.commit()
+
 # --- BANCO DE DADOS (Estrutura Completa) ---
 conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
 conn.execute("CREATE TABLE IF NOT EXISTS frota (id INTEGER PRIMARY KEY, placa TEXT, modelo TEXT, custo REAL, data_revisao TEXT, data_ipva TEXT)")
