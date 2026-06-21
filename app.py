@@ -4,90 +4,57 @@ import pandas as pd
 import plotly.express as px
 from datetime import datetime
 
-# --- CONFIGURAÇÃO E LOGIN SIMPLES ---
-st.set_page_config(page_title="SGF-Fleet Pro Elite", layout="wide")
+# --- CONFIGURAÇÃO E BANCO DE DADOS ---
+st.set_page_config(page_title="SGF-Fleet Pro ERP", layout="wide")
+conn = sqlite3.connect("sgf_erp.db", check_same_thread=False)
 
-def check_password():
-    if "logged_in" not in st.session_state:
-        st.sidebar.title("🔐 Acesso Restrito")
-        password = st.sidebar.text_input("Senha", type="password")
-        if st.sidebar.button("Entrar"):
-            if password == "admin123": # Altere a senha aqui
-                st.session_state.logged_in = True
-                st.rerun()
-            else:
-                st.error("Senha incorreta")
-        return False
-    return True
-
-if not check_password():
-    st.stop()
-
-# Exemplo para o módulo de Abastecimento
-def registrar_abastecimento(veiculo_id, litros, valor, km):
-    conn.execute("""
-        INSERT INTO abastecimento (id_veiculo, litros, valor, km, data) 
-        VALUES (?, ?, ?, ?, ?)
-    """, (veiculo_id, litros, valor, km, datetime.now().strftime("%Y-%m-%d")))
-    conn.commit()
-
-# Exemplo para o módulo de Ordem de Serviço
-def criar_os(veiculo_id, servico, pecas, custo):
-    conn.execute("""
-        INSERT INTO manutencao (id_veiculo, servico, pecas, custo, data) 
-        VALUES (?, ?, ?, ?, ?)
-    """, (veiculo_id, servico, pecas, custo, datetime.now().strftime("%Y-%m-%d")))
-    conn.commit()
-
-# --- BANCO DE DADOS (Estrutura Completa) ---
-conn = sqlite3.connect("frota_elite.db", check_same_thread=False)
-conn.execute("CREATE TABLE IF NOT EXISTS frota (id INTEGER PRIMARY KEY, placa TEXT, modelo TEXT, custo REAL, data_revisao TEXT, data_ipva TEXT)")
-conn.execute("CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, acao TEXT, data TEXT)")
-conn.execute("CREATE TABLE IF NOT EXISTS historico (id INTEGER PRIMARY KEY, id_veiculo INTEGER, descricao TEXT, valor REAL, data TEXT)")
+# Tabelas necessárias para os novos módulos
+conn.execute("CREATE TABLE IF NOT EXISTS frota (id INTEGER PRIMARY KEY, placa TEXT, modelo TEXT, custo REAL)")
+conn.execute("CREATE TABLE IF NOT EXISTS abastecimento (id INTEGER PRIMARY KEY, id_veiculo INTEGER, km REAL, litros REAL, valor REAL, data TEXT)")
 conn.commit()
 
-# --- DASHBOARD VISUAL ---
-st.title("🚛 SGF-Fleet Pro Elite")
-df = pd.read_sql("SELECT * FROM frota", conn)
+# --- SIDEBAR: MENU DE NAVEGAÇÃO ---
+menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro Veículos", "Abastecimento", "Ordens de Serviço"])
 
-if not df.empty:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        st.metric("Total de Veículos", len(df))
-        st.metric("Custo Total da Frota", f"R$ {df['custo'].sum():,.2f}")
-    with col2:
-        fig = px.bar(df, x='modelo', y='custo', title="Custo por Modelo")
-        st.plotly_chart(fig, use_container_width=True)
+# --- MÓDULO: DASHBOARD ---
+if menu == "Dashboard":
+    st.title("📊 Painel de Controle")
+    df = pd.read_sql("SELECT * FROM frota", conn)
+    if not df.empty:
+        st.metric("Total Veículos", len(df))
+        st.metric("Custo Total (Manutenções)", f"R$ {df['custo'].sum():,.2f}")
+    else:
+        st.info("Cadastre veículos para ver o painel.")
 
-# --- TABELA COLORIDA (Estilização) ---
-def highlight_status(row):
-    hoje = pd.Timestamp.now()
-    rev = pd.to_datetime(row['data_revisao'])
-    color = ''
-    if rev < hoje: color = 'background-color: #ffcccc' # Vermelho
-    elif (rev - hoje).days < 7: color = 'background-color: #fff3cd' # Amarelo
-    return [color] * len(row)
-
-st.subheader("Estado da Frota")
-if not df.empty:
-    # Aplicando estilo na tabela
-    df_styled = df.style.apply(highlight_status, axis=1)
-    st.dataframe(df_styled, use_container_width=True)
-
-# --- LOG DE AÇÕES ---
-def registrar_log(acao):
-    conn.execute("INSERT INTO logs (acao, data) VALUES (?, ?)", (acao, datetime.now().strftime("%Y-%m-%d %H:%M")))
-    conn.commit()
-
-# --- FUNCIONALIDADES (Resumo da interface) ---
-tab1, tab2 = st.tabs(["➕ Adicionar Veículo", "📜 Histórico de Ações"])
-with tab1:
-    with st.form("cadastro"):
-        # ... (Inputs do formulário anterior)
+# --- MÓDULO: CADASTRO ---
+elif menu == "Cadastro Veículos":
+    st.title("➕ Cadastro de Frota")
+    with st.form("form_veiculo"):
+        placa = st.text_input("Placa").upper()
+        modelo = st.text_input("Modelo")
+        custo = st.number_input("Custo Inicial", value=0.0)
         if st.form_submit_button("Salvar"):
-            # ... (código de insert)
-            registrar_log(f"Veículo cadastrado")
-            st.success("Salvo!")
+            conn.execute("INSERT INTO frota (placa, modelo, custo) VALUES (?,?,?)", (placa, modelo, custo))
+            conn.commit()
+            st.success("Veículo cadastrado!")
 
-with tab2:
-    st.write(pd.read_sql("SELECT * FROM logs ORDER BY id DESC LIMIT 10", conn))
+# --- MÓDULO: ABASTECIMENTO ---
+elif menu == "Abastecimento":
+    st.title("⛽ Controle de Abastecimento")
+    veiculos = pd.read_sql("SELECT id, placa FROM frota", conn)
+    
+    with st.form("form_abast"):
+        v_id = st.selectbox("Selecione o Veículo", veiculos['id'].tolist(), format_func=lambda x: veiculos[veiculos['id']==x]['placa'].values[0])
+        km = st.number_input("Hodômetro")
+        litros = st.number_input("Litros")
+        valor = st.number_input("Valor Total (R$)")
+        if st.form_submit_button("Registrar"):
+            conn.execute("INSERT INTO abastecimento (id_veiculo, km, litros, valor, data) VALUES (?,?,?,?,?)", 
+                         (v_id, km, litros, valor, datetime.now().strftime("%Y-%m-%d")))
+            conn.commit()
+            st.success("Abastecimento registrado!")
+
+# --- MÓDULO: ORDENS DE SERVIÇO (Exemplo de expansão) ---
+elif menu == "Ordens de Serviço":
+    st.title("🛠️ Ordens de Serviço")
+    st.warning("Módulo em desenvolvimento. Siga o padrão dos anteriores para expandir!")
