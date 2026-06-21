@@ -4,97 +4,78 @@ import pandas as pd
 from datetime import datetime
 
 # --- CONFIGURAÇÃO E BANCO ---
-st.set_page_config(page_title="SGF-Fleet Pro ERP", layout="wide")
-conn = sqlite3.connect("sgf_erp.db", check_same_thread=False)
+conn = sqlite3.connect("sgf_erp_pro.db", check_same_thread=False)
 
-# Criação de todas as tabelas necessárias
-tables = {
-    "frota": "id INTEGER PRIMARY KEY, placa TEXT, modelo TEXT",
-    "abastecimento": "id INTEGER PRIMARY KEY, id_veiculo INTEGER, km REAL, litros REAL, valor REAL, data TEXT",
-    "manutencao": "id INTEGER PRIMARY KEY, id_veiculo INTEGER, descricao TEXT, custo REAL, data TEXT",
-    "cartoes": "id INTEGER PRIMARY KEY, nome_cartao TEXT, limite REAL",
-    "trechos": "id INTEGER PRIMARY KEY, id_veiculo INTEGER, origem TEXT, destino TEXT, km_rodado REAL, motorista TEXT",
-    "checklist": "id INTEGER PRIMARY KEY, id_veiculo INTEGER, pneus TEXT, luzes TEXT, oleo TEXT, observacao TEXT, data TEXT"
-}
-for table, cols in tables.items():
-    conn.execute(f"CREATE TABLE IF NOT EXISTS {table} ({cols})")
+# Criar tabelas com relacionamento de status
+conn.execute("""CREATE TABLE IF NOT EXISTS frota 
+    (id INTEGER PRIMARY KEY, placa TEXT, modelo TEXT, status TEXT DEFAULT 'Disponível')""")
+conn.execute("""CREATE TABLE IF NOT EXISTS multas 
+    (id INTEGER PRIMARY KEY, id_veiculo INTEGER, codigo_multa TEXT, local TEXT, data TEXT)""")
+conn.execute("""CREATE TABLE IF NOT EXISTS sinistros 
+    (id INTEGER PRIMARY KEY, id_veiculo INTEGER, local TEXT, feridos INTEGER, terceiro INTEGER, detalhes TEXT)""")
+conn.execute("""CREATE TABLE IF NOT EXISTS aprovacoes 
+    (id INTEGER PRIMARY KEY, id_referencia INTEGER, tipo_referencia TEXT, aprovador TEXT, data TEXT)""")
+conn.commit()
 
-# --- MENU LATERAL ---
-menu = st.sidebar.radio("Navegação", ["Dashboard", "Cadastro Veículos", "Abastecimento", "Ordens de Serviço", "Checklist", "Trechos/Viagens", "Gestão Cartões"])
+# --- LÓGICA DE INTEGRAÇÃO (A "Engrenagem") ---
+def atualizar_status_veiculo(id_veiculo, novo_status):
+    conn.execute("UPDATE frota SET status = ? WHERE id = ?", (novo_status, id_veiculo))
+    conn.commit()
 
-# --- DASHBOARD ---
-if menu == "Dashboard":
-    st.title("📊 Painel de Controle")
-    # Exemplo de Relatório Cruzado
-    df_abast = pd.read_sql("SELECT * FROM abastecimento", conn)
-    if not df_abast.empty:
-        st.metric("Total Gasto em Combustível", f"R$ {df_abast['valor'].sum():,.2f}")
-    st.info("Aqui você pode inserir gráficos com a biblioteca Plotly.")
+# --- INTERFACE ---
+st.set_page_config(layout="wide")
+menu = st.sidebar.radio("Módulos", ["Dashboard", "Multas", "Sinistros", "Ordens de Serviço", "Checklist/Status", "Aprovações"])
 
-# --- MÓDULOS DE CADASTRO E MOVIMENTAÇÃO ---
-elif menu == "Cadastro Veículos":
-    st.title("➕ Cadastro de Veículos")
-    with st.form("f_veiculo"):
-        placa = st.text_input("Placa").upper()
-        modelo = st.text_input("Modelo")
-        if st.form_submit_button("Salvar"):
-            conn.execute("INSERT INTO frota (placa, modelo) VALUES (?,?)", (placa, modelo))
-            conn.commit()
-            st.success("Veículo salvo!")
-
-elif menu == "Abastecimento":
-    st.title("⛽ Abastecimento")
-    with st.form("f_abast"):
-        id_v = st.number_input("ID Veículo", min_value=1)
-        km = st.number_input("KM Atual")
-        litros = st.number_input("Litros")
-        valor = st.number_input("Valor R$")
-        if st.form_submit_button("Registrar"):
-            conn.execute("INSERT INTO abastecimento (id_veiculo, km, litros, valor, data) VALUES (?,?,?,?,?)", (id_v, km, litros, valor, datetime.now().strftime("%Y-%m-%d")))
-            conn.commit()
-            st.success("Registrado!")
-
-elif menu == "Ordens de Serviço":
-    st.title("🛠️ Ordens de Serviço (Manutenção)")
-    with st.form("f_os"):
-        id_v = st.number_input("ID Veículo")
-        desc = st.text_area("Descrição do Serviço")
-        custo = st.number_input("Custo R$")
-        if st.form_submit_button("Abrir OS"):
-            conn.execute("INSERT INTO manutencao (id_veiculo, descricao, custo, data) VALUES (?,?,?,?)", (id_v, desc, custo, datetime.now().strftime("%Y-%m-%d")))
-            conn.commit()
-            st.success("OS Registrada!")
-
-elif menu == "Checklist":
-    st.title("✅ Checklist Diário")
+if menu == "Checklist/Status":
+    st.title("✅ Checklist e Status Operacional")
     with st.form("f_check"):
         id_v = st.number_input("ID Veículo")
-        pneus = st.selectbox("Estado Pneus", ["Bom", "Ruim"])
-        luzes = st.selectbox("Estado Luzes", ["OK", "Defeito"])
-        obs = st.text_area("Observações")
-        if st.form_submit_button("Finalizar Checklist"):
-            conn.execute("INSERT INTO checklist (id_veiculo, pneus, luzes, observacao, data) VALUES (?,?,?,?,?)", (id_v, pneus, luzes, obs, datetime.now().strftime("%Y-%m-%d")))
-            conn.commit()
-            st.success("Checklist salvo!")
+        novo_status = st.selectbox("Status para o veículo", ["Disponível", "Em Manutenção", "Sinistrado", "Em Viagem"])
+        if st.form_submit_button("Atualizar e Aplicar ao Sistema"):
+            atualizar_status_veiculo(id_v, novo_status)
+            st.success(f"Status do veículo {id_v} alterado para {novo_status} em todo o sistema!")
 
-elif menu == "Trechos/Viagens":
-    st.title("📍 Registro de Trechos")
-    with st.form("f_trecho"):
+elif menu == "Multas":
+    st.title("🚔 Registro de Multas")
+    # Tabela de referência (simulada)
+    c_multa = st.selectbox("Código da Multa", ["501-1 (Excesso)", "602-0 (Sem Cinto)"])
+    id_v = st.number_input("ID Veículo")
+    local = st.text_input("Local da Infração")
+    if st.button("Lançar Multa"):
+        conn.execute("INSERT INTO multas (id_veiculo, codigo_multa, local, data) VALUES (?,?,?,?)", 
+                     (id_v, c_multa, local, datetime.now().strftime("%Y-%m-%d")))
+        conn.commit()
+        st.success("Multa vinculada ao veículo.")
+
+elif menu == "Aprovações":
+    st.title("✅ Centro de Aprovações")
+    ref_id = st.number_input("ID da OS ou Checklist")
+    tipo = st.selectbox("Tipo", ["OS", "Checklist"])
+    nome = st.text_input("Nome do Aprovador")
+    if st.button("Aprovar"):
+        conn.execute("INSERT INTO aprovacoes (id_referencia, tipo_referencia, aprovador, data) VALUES (?,?,?,?)", 
+                     (ref_id, tipo, nome, datetime.now().strftime("%Y-%m-%d")))
+        conn.commit()
+        # Se for OS, muda status para Manutenção
+        if tipo == "OS": atualizar_status_veiculo(ref_id, "Em Manutenção")
+        st.success("Aprovado e status atualizado!")
+
+elif menu == "Sinistros":
+    st.title("💥 Registro de Sinistros")
+    with st.form("f_sinistro"):
         id_v = st.number_input("ID Veículo")
-        origem = st.text_input("Origem")
-        destino = st.text_input("Destino")
-        motorista = st.text_input("Motorista")
-        if st.form_submit_button("Salvar Viagem"):
-            conn.execute("INSERT INTO trechos (id_veiculo, origem, destino, motorista) VALUES (?,?,?,?)", (id_v, origem, destino, motorista))
+        feridos = st.checkbox("Houve Feridos?")
+        terceiro = st.checkbox("Causado por Terceiros?")
+        detalhes = st.text_area("Detalhes do Ocorrido")
+        if st.form_submit_button("Salvar Sinistro"):
+            conn.execute("INSERT INTO sinistros (id_veiculo, feridos, terceiro, detalhes) VALUES (?,?,?,?)", 
+                         (id_v, int(feridos), int(terceiro), detalhes))
+            atualizar_status_veiculo(id_v, "Sinistrado")
             conn.commit()
-            st.success("Viagem registrada!")
+            st.success("Sinistro registrado e veículo marcado como Sinistrado.")
 
-elif menu == "Gestão Cartões":
-    st.title("💳 Cartões Combustível")
-    with st.form("f_cartao"):
-        nome = st.text_input("Nome do Cartão")
-        limite = st.number_input("Limite R$")
-        if st.form_submit_button("Cadastrar"):
-            conn.execute("INSERT INTO cartoes (nome_cartao, limite) VALUES (?,?)", (nome, limite))
-            conn.commit()
-            st.success("Cartão salvo!")
+# --- TABELAS DINÂMICAS ---
+st.divider()
+st.subheader("Visualização Dinâmica")
+tab_select = st.selectbox("Qual tabela deseja consultar?", ["Frota", "Multas", "Sinistros"])
+st.dataframe(pd.read_sql(f"SELECT * FROM {tab_select.lower().replace('frota', 'frota')}", conn), use_container_width=True)
