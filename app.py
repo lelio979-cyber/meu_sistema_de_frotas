@@ -3,6 +3,13 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 
+# --- DICIONÁRIO DE MULTAS (Banco de Conhecimento) ---
+DICIONARIO_MULTAS = {
+    "501-1": {"desc": "Excesso de velocidade > 50%", "valor": 880.41, "pontos": 7, "gravidade": "Gravíssima"},
+    "602-0": {"desc": "Conduzir sem cinto de segurança", "valor": 195.23, "pontos": 5, "gravidade": "Grave"},
+    "518-5": {"desc": "Estacionar em local proibido", "valor": 130.16, "pontos": 4, "gravidade": "Média"}
+}
+
 # --- CONFIGURAÇÃO E BANCO ---
 conn = sqlite3.connect("sgf_erp_pro.db", check_same_thread=False)
 
