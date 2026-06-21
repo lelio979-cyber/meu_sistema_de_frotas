@@ -33,7 +33,10 @@ with st.form("cadastro", clear_on_submit=True):
     data_revisao = st.date_input("Data Revisão")
     data_ipva = st.date_input("Data IPVA")
     
-    if st.form_submit_button("Salvar"):
+   if st.form_submit_button("Salvar Veículo"):
+    if not placa:
+        st.error("A placa é obrigatória!")
+    else:
         conn.execute("INSERT INTO frota (placa, modelo, custo, data_revisao, data_ipva) VALUES (?,?,?,?,?)", 
                      (placa, modelo, custo, str(data_revisao), str(data_ipva)))
         conn.commit()
