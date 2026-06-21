@@ -44,15 +44,21 @@ if menu == "Checklist/Status":
 
 elif menu == "Multas":
     st.title("🚔 Registro de Multas")
-    # Tabela de referência (simulada)
-    c_multa = st.selectbox("Código da Multa", ["501-1 (Excesso)", "602-0 (Sem Cinto)"])
+    
+    cod_selecionado = st.selectbox("Código da Multa", list(DICIONARIO_MULTAS.keys()))
+    info = DICIONARIO_MULTAS[cod_selecionado]
+    
+    # Exibir detalhes automaticamente
+    st.info(f"**Infração:** {info['desc']} | **Valor:** R$ {info['valor']} | **Pontos:** {info['pontos']}")
+    
     id_v = st.number_input("ID Veículo")
     local = st.text_input("Local da Infração")
+    
     if st.button("Lançar Multa"):
         conn.execute("INSERT INTO multas (id_veiculo, codigo_multa, local, data) VALUES (?,?,?,?)", 
-                     (id_v, c_multa, local, datetime.now().strftime("%Y-%m-%d")))
+                     (id_v, cod_selecionado, local, datetime.now().strftime("%Y-%m-%d")))
         conn.commit()
-        st.success("Multa vinculada ao veículo.")
+        st.success("Multa vinculada!")
 
 elif menu == "Aprovações":
     st.title("✅ Centro de Aprovações")
